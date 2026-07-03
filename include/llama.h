@@ -168,6 +168,8 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_Q3_0_ROCMFPX_AGENT    = 113, // ROCmFPx 3-bit agent/tool-call coherent routing
         LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_AGENT    = 114, // ROCmFPx 6-bit agent/tool-call coherent routing
         LLAMA_FTYPE_MOSTLY_Q8_0_ROCMFPX_AGENT    = 115, // ROCmFPx 8-bit agent/tool-call coherent routing
+        LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_LEAN     = 116, // ROCmFPx 6-bit size/speed-biased routing
+        LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_AGENT_LEAN = 117, // ROCmFPx 6-bit agent routing without Q8-heavy boosts
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };
@@ -592,6 +594,7 @@ extern "C" {
     LLAMA_API int32_t llama_model_n_embd_inp (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_embd_out (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_layer    (const struct llama_model * model);
+    LLAMA_API int32_t llama_model_n_layer_nextn(const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_head     (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_head_kv  (const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_swa      (const struct llama_model * model);
@@ -931,6 +934,32 @@ extern "C" {
                           size_t   size,
                     llama_seq_id   dest_seq_id,
            llama_state_seq_flags   flags);
+
+    struct llama_state_seq_storage;
+
+    LLAMA_API struct llama_state_seq_storage * llama_state_seq_storage_init(void);
+    LLAMA_API struct llama_state_seq_storage * llama_state_seq_storage_clone(
+            const struct llama_state_seq_storage * storage);
+    LLAMA_API void llama_state_seq_storage_free(
+            struct llama_state_seq_storage * storage);
+    LLAMA_API size_t llama_state_seq_storage_size(
+            const struct llama_state_seq_storage * storage);
+
+    LLAMA_API size_t llama_state_seq_get_data_ext_storage(
+            struct llama_context * ctx,
+                         uint8_t * dst,
+                          size_t   size,
+                    llama_seq_id   seq_id,
+           llama_state_seq_flags   flags,
+    struct llama_state_seq_storage * storage);
+
+    LLAMA_API size_t llama_state_seq_set_data_ext_storage(
+            struct llama_context * ctx,
+                   const uint8_t * src,
+                          size_t   size,
+                    llama_seq_id   dest_seq_id,
+           llama_state_seq_flags   flags,
+      const struct llama_state_seq_storage * storage);
 
     //
     // Decoding
