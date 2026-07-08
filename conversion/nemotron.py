@@ -234,14 +234,14 @@ class NemotronHModel(GraniteHybridModel):
                 # One block_configs entry per layer - extract per-layer values
                 per_layer_ff: list[int] = []
                 per_layer_top_k: list[int] = []
-                global_top_k: int | None = self.hparams.get("num_experts_per_tok")
-                global_ff: int | None = self.hparams.get("moe_intermediate_size")
+                default_top_k: int | None = self.hparams.get("num_experts_per_tok")
+                default_intermediate_size: int | None = self.hparams.get("moe_intermediate_size")
                 for i, bc in enumerate(block_configs):
                     if i in self._mlp_layers:
-                        layer_ff = bc.get("moe_intermediate_size", global_ff)
+                        layer_ff = bc.get("moe_intermediate_size", default_intermediate_size)
                         assert layer_ff is not None, f"missing moe_intermediate_size for layer {i}"
                         per_layer_ff.append(layer_ff)
-                        layer_top_k = bc.get("num_experts_per_tok", global_top_k)
+                        layer_top_k = bc.get("num_experts_per_tok", default_top_k)
                         assert layer_top_k is not None, f"missing num_experts_per_tok for layer {i}"
                         per_layer_top_k.append(layer_top_k)
                     else:
@@ -249,16 +249,16 @@ class NemotronHModel(GraniteHybridModel):
                         per_layer_top_k.append(0)
                 self.gguf_writer.add_feed_forward_length(per_layer_ff)
                 # Write expert_used_count as array when values differ across layers
-                moe_top_k_values = [v for v in per_layer_top_k if v > 0]
-                if len(set(moe_top_k_values)) > 1:
+                nonzero_top_k_values = [v for v in per_layer_top_k if v > 0]
+                if len(set(nonzero_top_k_values)) > 1:
                     self.gguf_writer.add_expert_used_count(per_layer_top_k)
                 else:
-                    self.gguf_writer.add_expert_used_count(moe_top_k_values[0] if moe_top_k_values else 0)
+                    self.gguf_writer.add_expert_used_count(nonzero_top_k_values[0] if nonzero_top_k_values else 0)
                 # Only write expert_feed_forward_length when sizes are uniform;
                 # for variable sizes the C++ side reads from feed_forward_length.
-                ff_values = [v for v in per_layer_ff if v > 0]
-                if len(set(ff_values)) == 1:
-                    self.gguf_writer.add_expert_feed_forward_length(ff_values[0])
+                nonzero_ff_values = [v for v in per_layer_ff if v > 0]
+                if len(set(nonzero_ff_values)) == 1:
+                    self.gguf_writer.add_expert_feed_forward_length(nonzero_ff_values[0])
             else:
                 # Uniform MoE config (original NemotronH MoE)
                 moe_intermediate_size = self.hparams["moe_intermediate_size"]
