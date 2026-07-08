@@ -89,7 +89,9 @@ void llama_model_nemotron_h::load_arch_tensors(llama_model_loader &) {
             layer.wo_b = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd}, TENSOR_NOT_REQUIRED);
         }  else {
             if (n_expert != 0) {
-                const int64_t n_ff_exp = hparams.n_ff_exp ? hparams.n_ff_exp : n_ff / n_expert_used;
+                // Use per-layer intermediate size from n_ff(i) when set, otherwise
+                // fall back to the uniform n_ff_exp (for backward compat with older GGUFs)
+                const int64_t n_ff_exp = hparams.n_ff_exp ? hparams.n_ff_exp : hparams.n_ff(i);
                 const int64_t n_ff_shexp = hparams.n_ff_shexp;
 
                 layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), { n_embd, n_expert}, 0);
@@ -224,7 +226,8 @@ ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(ggml_tensor * cur, 
                     nullptr, // no gate
                     model.layers[il].ffn_down_exps,
                     model.layers[il].ffn_exp_probs_b,
-                    n_expert, n_expert_used,
+                    n_expert,
+                    hparams.n_expert_used_arr[il] > 0 ? hparams.n_expert_used_arr[il] : hparams.n_expert_used,
                     LLM_FFN_RELU_SQR, hparams.expert_weights_norm,
                     hparams.expert_weights_scale,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID,
