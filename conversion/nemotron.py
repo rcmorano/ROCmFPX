@@ -198,6 +198,18 @@ class NemotronHModel(GraniteHybridModel):
             self._ssm_layers = [i for i, val in enumerate(pattern) if val == "mamba"]
             self._mlp_layers = [i for i, val in enumerate(pattern) if val == "moe"]
 
+    def find_hparam(self, keys: Iterable[str], optional: bool = False) -> Any:
+        layer_count_keys = {"n_layers", "num_hidden_layers", "n_layer", "num_layers"}
+        if any(key in layer_count_keys for key in keys):
+            layers_block_type = self.hparams.get("layers_block_type")
+            if isinstance(layers_block_type, list) and len(layers_block_type) > 0:
+                return len(layers_block_type)
+            block_configs = self.hparams.get("block_configs")
+            if isinstance(block_configs, list) and len(block_configs) > 0:
+                return len(block_configs)
+
+        return super().find_hparam(keys, optional=optional)
+
     def get_attn_layers(self):
         pattern = self.hparams.get("hybrid_override_pattern") or self.hparams.get("layers_block_type")
         if pattern is None:
