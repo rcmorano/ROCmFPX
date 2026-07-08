@@ -9,7 +9,7 @@ void llama_model_deepseek4::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_Q_LORA_RANK,       hparams.n_lora_q);
     ml.get_key(LLM_KV_ATTENTION_OUTPUT_LORA_RANK,  hparams.n_lora_o);
     ml.get_key(LLM_KV_ATTENTION_OUTPUT_GROUP_COUNT,hparams.n_attn_out_groups);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,         hparams.n_expert_shared);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,        hparams.expert_weights_scale, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,         hparams.expert_weights_norm, false);
@@ -68,7 +68,7 @@ void llama_model_deepseek4::load_arch_tensors(llama_model_loader & ml) {
     const int64_t q_lora_rank     = hparams.n_lora_q;
     const int64_t o_lora_rank     = hparams.n_lora_o;
     const int64_t n_out_groups    = hparams.n_attn_out_groups;
-    const int64_t n_ff_exp        = hparams.n_ff_exp;
+    const int64_t n_ff_exp        = hparams.n_ff_exp_impl;
     const int64_t n_expert_shared = hparams.n_expert_shared;
     const int64_t n_hc            = hparams.n_hc;
     const int64_t hc_dim          = n_hc * n_embd;
