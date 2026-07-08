@@ -2119,9 +2119,10 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
                     }
 
                     if (mtp_on_hybrid_nemotron_h) {
-                        // Only the attention sub-block needs a KV slot; the moe sub-block never attends.
-                        const int n_trunk = hparams.n_layer - hparams.nextn_predict_layers;
-                        filter = [n_trunk, this](int32_t il) { return il >= n_trunk && hparams.n_ff(il) == 0; };
+                        // Only the attention sub-block (blk.n_trunk) needs a KV slot;
+                        // the moe sub-block (blk.n_trunk+1) never attends.
+                        const int n_trunk = hparams.n_layer - (int)hparams.nextn_predict_layers;
+                        filter = [n_trunk](int32_t il) { return il == n_trunk; };
                     }
                     if (mtp_on_hybrid_qwen35) {
                         const uint32_t n_main = hparams.n_layer - hparams.nextn_predict_layers;

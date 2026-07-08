@@ -96,10 +96,11 @@ void llama_model_nemotron_h::load_arch_tensors(llama_model_loader &) {
             layer.wo_b = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd}, TENSOR_NOT_REQUIRED);
         } else {
             if (n_expert != 0) {
-                const auto & hp = hparams;
-                const int64_t n_ff_exp_i = hp.n_ff_exp(i)
-                    ? (int64_t)hp.n_ff_exp(i)
-                    : hp.n_ff(i) / (int64_t)hp.n_expert_used(i);
+                // n_ff_exp(i) returns the per-layer value with scalar fallback;
+                // if both per-layer and scalar are absent, derive from n_ff / n_expert_used.
+                const int64_t n_ff_exp_i = hparams.n_ff_exp(i)
+                    ? (int64_t)hparams.n_ff_exp(i)
+                    : hparams.n_ff(i) / (int64_t)hparams.n_expert_used(i);
                 const int64_t n_ff_shexp = hparams.n_ff_shexp;
 
                 layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), { n_embd, n_expert}, 0);
@@ -270,9 +271,9 @@ ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(llm_graph_context &
 llama_model_nemotron_h::graph_mtp::graph_mtp(const llama_model & model, const llm_graph_params & params)
     : llm_graph_context(params) {
     GGML_ASSERT(hparams.nextn_predict_layers == 2 &&
-            "NEMOTRON_H_MOE MTP requires exactly 2 appended sub-blocks (attention + moe)");
+            "nemotron_h MTP requires exactly 2 appended sub-blocks (attention + moe)");
     GGML_ASSERT(cparams.nextn_layer_offset == 0 &&
-            "NEMOTRON_H_MOE MTP is a single step made of 2 sub-blocks, not independent chained heads");
+            "nemotron_h MTP is a single step made of 2 sub-blocks, not independent chained heads");
 
     const int64_t n_embd_head = hparams.n_embd_head_v();
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());

@@ -11711,6 +11711,7 @@ class NemotronHPuzzleModel(NemotronHModel):
         GraniteHybridModel.__init__(self, dir_model, *args, hparams=hparams, **kwargs)
 
         self.head_dim = self.find_hparam(["head_dim", "attention_head_dim"])
+        # Puzzle stores the SSM inner dimension as num_heads * d_model (mamba_num_heads * hidden_size)
         self.d_inner = self.find_hparam(["num_heads"]) * self.d_model
 
     def set_gguf_parameters(self):
