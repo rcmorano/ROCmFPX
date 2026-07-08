@@ -157,6 +157,7 @@ class NemotronHModel(GraniteHybridModel):
     """Hybrid mamba2/attention model from NVIDIA"""
     model_arch = gguf.MODEL_ARCH.NEMOTRON_H
     is_moe: bool = False
+    _experts: list[dict[str, Tensor]] | None = None
 
     def __init__(self, *args, **kwargs):
         # We have to determine the correct model architecture (MoE vs non-MoE) before
@@ -220,6 +221,15 @@ class NemotronHModel(GraniteHybridModel):
             return [i for i, val in enumerate(pattern) if val == "*"]
 
         return [i for i, val in enumerate(pattern) if val == "attention"]
+
+    @classmethod
+    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+        name, gen = item
+
+        if name.startswith("model.layers.") and ".mixer." in name:
+            name = "backbone.layers." + name.removeprefix("model.layers.")
+
+        return super().filter_tensors((name, gen))
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
