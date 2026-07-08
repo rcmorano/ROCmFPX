@@ -199,6 +199,7 @@ class NemotronHModel(GraniteHybridModel):
             self._mlp_layers = [i for i, val in enumerate(pattern) if val == "moe"]
 
     def find_hparam(self, keys: Iterable[str], optional: bool = False) -> Any:
+        """Fallback for Puzzle configs that omit explicit layer-count fields."""
         layer_count_keys = {"n_layers", "num_hidden_layers", "n_layer", "num_layers"}
         if any(key in layer_count_keys for key in keys):
             layers_block_type = self.hparams.get("layers_block_type")
