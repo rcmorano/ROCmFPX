@@ -11743,20 +11743,37 @@ class NemotronHPuzzleModel(NemotronHModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("mtp."):
-            assert bid is not None and bid in (0, 1), f"Unexpected MTP tensor: {name}"
+            n_mtp_layers = len(self.mtp_block_configs)
+            if name.find("layers.") == -1:
+                remapper = {
+                    "mtp.fc": "model.layers.{bid}.eh_proj",
+                    "mtp.pre_fc_norm_embedding": "model.layers.{bid}.enorm",
+                    "mtp.pre_fc_norm_hidden": "model.layers.{bid}.hnorm",
+                    "mtp.norm": "model.layers.{bid}.shared_head.norm",
+                }
+                name_path = Path(name)
+                mapped_name = remapper.get(name_path.stem)
+                if mapped_name is None:
+                    raise ValueError(f"Unexpected MTP tensor: {name}")
+
+                for mtp_offset in range(n_mtp_layers):
+                    mtp_bid = self.n_layer_trunk + mtp_offset
+                    yield from super().modify_tensors(
+                        data_torch, f"{mapped_name.format(bid=mtp_bid)}{name_path.suffix}", mtp_bid)
+                return
+
+            assert bid is not None and 0 <= bid < n_mtp_layers, f"Unexpected MTP tensor: {name}"
             mtp_bid = self.n_layer_trunk + bid
 
-            if name == "mtp.layers.0.eh_proj.weight":
-                yield self.format_tensor_name(gguf.MODEL_TENSOR.NEXTN_EH_PROJ, mtp_bid), data_torch
-                return
-            if name == "mtp.layers.0.enorm.weight":
-                yield self.format_tensor_name(gguf.MODEL_TENSOR.NEXTN_ENORM, mtp_bid), data_torch
-                return
-            if name == "mtp.layers.0.hnorm.weight":
-                yield self.format_tensor_name(gguf.MODEL_TENSOR.NEXTN_HNORM, mtp_bid), data_torch
-                return
-            if name == "mtp.layers.1.final_layernorm.weight":
-                yield self.format_tensor_name(gguf.MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM, mtp_bid), data_torch
+            mtp_layer_name = name.removeprefix(f"mtp.layers.{bid}.")
+            mtp_layer_remap = {
+                "eh_proj.weight": gguf.MODEL_TENSOR.NEXTN_EH_PROJ,
+                "enorm.weight": gguf.MODEL_TENSOR.NEXTN_ENORM,
+                "hnorm.weight": gguf.MODEL_TENSOR.NEXTN_HNORM,
+                "final_layernorm.weight": gguf.MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM,
+            }
+            if mtp_layer_name in mtp_layer_remap:
+                yield self.format_tensor_name(mtp_layer_remap[mtp_layer_name], mtp_bid), data_torch
                 return
 
             rewritten_name = name.replace(f"mtp.layers.{bid}.", f"backbone.layers.{mtp_bid}.", 1)
