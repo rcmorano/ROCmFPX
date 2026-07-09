@@ -11762,7 +11762,10 @@ class NemotronHPuzzleModel(NemotronHModel):
                         data_torch, f"{mapped_name.format(bid=mtp_bid)}{name_path.suffix}", mtp_bid)
                 return
 
-            assert bid is not None and 0 <= bid < n_mtp_layers, f"Unexpected MTP tensor: {name}"
+            assert bid is not None and 0 <= bid < n_mtp_layers, (
+                f"Invalid MTP layer index {bid} for tensor {name}; "
+                f"expected 0 <= bid < {n_mtp_layers}"
+            )
             mtp_bid = self.n_layer_trunk + bid
 
             mtp_layer_name = name.removeprefix(f"mtp.layers.{bid}.")
