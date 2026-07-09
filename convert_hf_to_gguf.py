@@ -11763,7 +11763,7 @@ class NemotronHPuzzleModel(NemotronHModel):
                 return
 
             assert bid is not None and 0 <= bid < n_mtp_layers, (
-                f"Invalid MTP layer index {bid} for tensor {name}; "
+                f"Invalid MTP block index (bid={bid}) for tensor {name}; "
                 f"expected 0 <= bid < {n_mtp_layers}"
             )
             mtp_bid = self.n_layer_trunk + bid
