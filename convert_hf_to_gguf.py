@@ -11395,7 +11395,11 @@ class NemotronHModel(GraniteHybridModel):
         # calling the parent __init__. This is because the parent constructor
         # uses self.model_arch to build the tensor name map, and all MoE-specific
         # mappings would be missed if it were called with the default non-MoE arch.
-        hparams = ModelBase.load_hparams(args[0], self.is_mistral_format)
+        # Use the hparams passed in (from main) rather than reloading, to preserve block_configs.
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(args[0], self.is_mistral_format)
+        
         has_moe_params = (
             "num_experts_per_tok" in hparams
             or (isinstance(hparams.get("llm_config"), dict) and "num_experts_per_tok" in hparams["llm_config"])
@@ -11404,6 +11408,8 @@ class NemotronHModel(GraniteHybridModel):
             self.model_arch = gguf.MODEL_ARCH.NEMOTRON_H_MOE
             self.is_moe = True
 
+        # Pass the same hparams to parent initialization
+        kwargs["hparams"] = hparams
         super().__init__(*args, **kwargs)
 
         # Save the top-level head_dim for later
