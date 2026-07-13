@@ -14444,9 +14444,12 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
         arch = vision_config["architectures"][0]
     
     if arch is None:
-        # Fallback: detect NemotronHPuzzleForCausalLM by presence of block_configs
-        if "block_configs" in hparams or "mtp_block_configs" in hparams:
-            return "NemotronHPuzzleForCausalLM"
+        # Fallback: detect NemotronHPuzzleForCausalLM by presence of block_configs anywhere in hparams
+        # Check top-level, text_config, and vision_config
+        check_configs = [hparams, text_config, vision_config]
+        for cfg in check_configs:
+            if "block_configs" in cfg or "mtp_block_configs" in cfg:
+                return "NemotronHPuzzleForCausalLM"
         raise ValueError("Failed to detect model architecture")
     
     return arch
