@@ -11626,6 +11626,18 @@ class NemotronHPuzzleModel(NemotronHModel):
     is_moe = True
 
     def __init__(self, *args, **kwargs):
+        # Extract hparams and ensure block_count is available for parent init
+        hparams = kwargs.pop("hparams", None) or {}
+        
+        # Derive n_layer_all from block_configs and mtp_block_configs
+        if "n_layer_all" not in hparams:
+            block_configs = hparams.get("block_configs", [])
+            mtp_block_configs = hparams.get("mtp_block_configs", [])
+            hparams["n_layer_all"] = len(block_configs) + len(mtp_block_configs)
+        
+        # Pass modified hparams to parent initialization
+        kwargs["hparams"] = hparams
+        
         super().__init__(*args, **kwargs)
 
         # Extract block_configs and mtp_block_configs from hparams
