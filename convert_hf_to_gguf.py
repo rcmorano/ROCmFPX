@@ -56,6 +56,12 @@ except ImportError:
 
 logger = logging.getLogger("hf-to-gguf")
 
+# Import model-specific converters to register their architectures
+try:
+    from conversion.nemotron import NemotronHPuzzleModel  # type: ignore[import-not-found]
+except ImportError:
+    pass
+
 
 ###### MODEL DEFINITIONS ######
 
