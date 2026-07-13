@@ -1,4 +1,5 @@
 #include "models.h"
+#include <algorithm>
 
 void llama_model_nemotron_h::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_SSM_CONV_KERNEL,    hparams.ssm_d_conv);
@@ -7,25 +8,57 @@ void llama_model_nemotron_h::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_SSM_TIME_STEP_RANK, hparams.ssm_dt_rank);
     ml.get_key(LLM_KV_SSM_GROUP_COUNT,    hparams.ssm_n_group);
 
+    // NextN/MTP support: extra decoder block appended beyond the main stack
+    ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.nextn_predict_layers, false);
+    // n_layer_all is total layers (trunk + MTP)
+    const uint32_t n_layer_all = hparams.n_layer + hparams.nextn_predict_layers;
+
+    // Set n_layer_nextn_per_head based on nextn_predict_layers
+    if (hparams.nextn_predict_layers > 0) {
+        hparams.n_layer_nextn_per_head = hparams.nextn_predict_layers;
+    }
+
     // A layer is recurrent IFF the n_head_kv value is set to 0 and
-    // the n_ff value is set to 0
-    for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+    // the n_ff value is set to 0. Loop over all layers (including MTP).
+    for (uint32_t i = 0; i < n_layer_all; ++i) {
         hparams.recurrent_layer_arr[i] = (hparams.n_head_kv(i) == 0 && hparams.n_ff(i) == 0);
     }
 
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp,        false);
-    ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp,      false);
+    // Load per-layer expert feed-forward lengths
+    ml.get_key_or_arr(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_arr, n_layer_all, false);
+    // Derive hparams.n_ff_exp_impl as max across layers
+    hparams.n_ff_exp_impl = 0;
+    for (uint32_t i = 0; i < n_layer_all; ++i) {
+        if (hparams.n_ff_exp_arr[i] > hparams.n_ff_exp_impl) {
+            hparams.n_ff_exp_impl = hparams.n_ff_exp_arr[i];
+        }
+    }
+
+    ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,               hparams.expert_weights_norm, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
     ml.get_key(LLM_KV_MOE_LATENT_SIZE,                   hparams.moe_latent_size, false);
 
+    // Distinguish homogeneous vs heterogeneous 88-layer models based on n_expert_used_arr variation
     switch (hparams.n_layer) {
         case 52: type = LLM_TYPE_31B_A3_5B; break; // Nemotron-H_MOE 31B
         case 56: type = LLM_TYPE_9B; break;
-        case 88: type = LLM_TYPE_120B_A12B; break;
+        case 88: {
+            // Check if n_expert_used varies across layers (heterogeneous 75B.A9B)
+            bool varying = false;
+            uint32_t first_used = hparams.n_expert_used_arr[0];
+            for (uint32_t i = 1; i < n_layer_all; ++i) {
+                if (hparams.n_expert_used_arr[i] != first_used) {
+                    varying = true;
+                    break;
+                }
+            }
+            type = varying ? LLM_TYPE_75B_A9B : LLM_TYPE_120B_A12B;
+            break;
+        }
         default: type = LLM_TYPE_UNKNOWN;
     }
 }
@@ -56,7 +89,9 @@ void llama_model_nemotron_h::load_arch_tensors(llama_model_loader &) {
         }
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    const uint32_t n_layer_all = hparams.n_layer + hparams.nextn_predict_layers;
+
+    for (int i = 0; i < (int)n_layer_all; ++i) {
         auto & layer = layers[i];
 
         // all blocks use the attn norm
@@ -87,25 +122,29 @@ void llama_model_nemotron_h::load_arch_tensors(llama_model_loader &) {
             create_tensor_qkv(layer, i, n_embd, n_embd_head_k * n_head_i, n_embd_k_gqa_i, n_embd_v_gqa_i, 0);
             layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head_i, n_embd}, 0);
             layer.wo_b = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "bias", i), {n_embd}, TENSOR_NOT_REQUIRED);
-        }  else {
-            if (n_expert != 0) {
-                const int64_t n_ff_exp = hparams.n_ff_exp ? hparams.n_ff_exp : n_ff / n_expert_used;
-                const int64_t n_ff_shexp = hparams.n_ff_shexp;
+        } else {
+            // MOE or MLP layers
+            // Use per-layer n_ff_exp_i from hparams.n_ff_exp(i) with fallback to n_ff(i)/n_expert_used(i)
+            const int64_t n_ff_exp_i = hparams.n_ff_exp_arr[i] > 0 ? hparams.n_ff_exp_arr[i] : (hparams.n_ff(i) / hparams.n_expert_used_arr[i]);
+            const int64_t n_expert_used_i = hparams.n_expert_used_arr[i];
+            const int64_t n_ff_shexp = hparams.n_ff_shexp;
 
-                layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), { n_embd, n_expert}, 0);
-                layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert         }, 0);
+            if (n_expert_used_i > 0) {
+                layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), { n_embd, n_expert_used_i}, 0);
+                layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert_used_i}, 0);
 
                 // MoE branch
                 layer.ffn_latent_down = create_tensor(tn(LLM_TENSOR_FFN_LATENT_DOWN, "weight", i), {n_embd, moe_n_embd}, TENSOR_NOT_REQUIRED);
                 layer.ffn_latent_up   = create_tensor(tn(LLM_TENSOR_FFN_LATENT_UP,   "weight", i), {moe_n_embd, n_embd}, TENSOR_NOT_REQUIRED);
 
-                layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   moe_n_embd, n_expert}, 0);
-                layer.ffn_up_exps     = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {moe_n_embd, n_ff_exp, n_expert}, 0);
+                layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_i,   moe_n_embd, n_expert_used_i}, 0);
+                layer.ffn_up_exps     = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {moe_n_embd, n_ff_exp_i, n_expert_used_i}, 0);
 
                 // Shared expert branch
-                layer.ffn_down_shexp  = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {n_ff_shexp, n_embd}, 0);
-                layer.ffn_up_shexp    = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_shexp}, 0);
-
+                if (n_ff_shexp > 0) {
+                    layer.ffn_down_shexp  = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {n_ff_shexp, n_embd}, 0);
+                    layer.ffn_up_shexp    = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_shexp}, 0);
+                }
             } else {
                 // mlp layers
                 layer.ffn_down   = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  hparams.n_ff(i), n_embd}, 0);
@@ -114,10 +153,26 @@ void llama_model_nemotron_h::load_arch_tensors(llama_model_loader &) {
                 layer.ffn_up_b   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "bias",   i), {hparams.n_ff(i)}, TENSOR_NOT_REQUIRED);
             }
         }
+
+        // Create NextN/MTP specific tensors for MTP blocks starting at n_layer
+        if (i == (int)hparams.n_layer) {
+            // MTP blocks [n_layer, n_layer_all) - create nextn tensors for the first MTP block
+            layer.nextn.eh_proj = create_tensor(tn(LLM_TENSOR_NEXTN_EH_PROJ, "weight", i), { 2 * n_embd, n_embd }, 0);
+            layer.nextn.enorm   = create_tensor(tn(LLM_TENSOR_NEXTN_ENORM,   "weight", i), { n_embd },              0);
+            layer.nextn.hnorm   = create_tensor(tn(LLM_TENSOR_NEXTN_HNORM,   "weight", i), { n_embd },              0);
+        }
+
+        // Create shared head norm tensor at the last block
+        if (i == (int)n_layer_all - 1) {
+            layer.nextn.shared_head_norm = create_tensor(tn(LLM_TENSOR_NEXTN_SHARED_HEAD_NORM, "weight", i), { n_embd }, TENSOR_NOT_REQUIRED);
+        }
     }
 }
 
 std::unique_ptr<llm_graph_context> llama_model_nemotron_h::build_arch_graph(const llm_graph_params & params) const {
+    if (params.gtype == LLM_GRAPH_TYPE_DECODER_MTP) {
+        return std::make_unique<graph_mtp>(*this, params);
+    }
     return std::make_unique<graph>(*this, params);
 }
 
@@ -148,9 +203,9 @@ llama_model_nemotron_h::graph::graph(const llama_model & model, const llm_graph_
             cur = build_mamba2_layer(inp->get_recr(), cur, model, ubatch, il);
         } else if (hparams.n_ff(il) == 0) {
             // attention layer //
-            cur = build_attention_layer(cur, inp->get_attn(), model, n_embd_head, il);
+            cur = build_attention_layer(*this, cur, inp->get_attn(), model, n_embd_head, il);
         } else {
-            cur = build_ffn_layer(cur, model, il);
+            cur = build_ffn_layer(*this, cur, model, il);
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
@@ -181,50 +236,46 @@ llama_model_nemotron_h::graph::graph(const llama_model & model, const llm_graph_
     ggml_build_forward_expand(gf, cur);
 }
 
-ggml_tensor * llama_model_nemotron_h::graph::build_attention_layer(ggml_tensor *             cur,
-                                                          llm_graph_input_attn_kv * inp_attn,
-                                                          const llama_model &       model,
-                                                                int64_t             n_embd_head,
-                                                                int                 il) {
-    auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur, n_embd_head, hparams.n_head(il), hparams.n_head_kv(il), il);
+ggml_tensor * llama_model_nemotron_h::graph::build_attention_layer(llm_graph_context & self, ggml_tensor * cur, llm_graph_input_attn_kv * inp_attn, const llama_model & model, int64_t n_embd_head, int il) {
+    auto [Qcur, Kcur, Vcur] = self.build_qkv(model.layers[il], cur, n_embd_head, hparams.n_head(il), hparams.n_head_kv(il), il);
 
     const float kq_scale =
         hparams.f_attention_scale == 0.0f ? 1.0f / sqrtf(float(n_embd_head)) : hparams.f_attention_scale;
-    cur = build_attn(inp_attn,
+    cur = self.build_attn(inp_attn,
             model.layers[il].wo, model.layers[il].wo_b, model.layers[il].wo_s,
             Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
-    cb(cur, "attn_out", il);
+    self.cb(cur, "attn_out", il);
     return cur;
 }
 
-ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(ggml_tensor * cur, const llama_model & model, int il) {
+ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(llm_graph_context & self, ggml_tensor * cur, const llama_model & model, int il) {
     if (model.layers[il].ffn_gate_inp == nullptr) {
-        cur = build_ffn(cur,
+        cur = self.build_ffn(cur,
                 model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   model.layers[il].ffn_up_s,
                 NULL,                      NULL,                        NULL,
                 model.layers[il].ffn_down, model.layers[il].ffn_down_b, model.layers[il].ffn_down_s,
                 NULL,
                 LLM_FFN_RELU_SQR, LLM_FFN_PAR, il);
-        cb(cur, "ffn_out", il);
+        self.cb(cur, "ffn_out", il);
     } else {
         ggml_tensor * inp_emb    = cur;
         ggml_tensor * inp_latent = cur;
 
         if (model.layers[il].ffn_latent_down) {
-            inp_latent = ggml_mul_mat(ctx0, model.layers[il].ffn_latent_down, cur);
+            inp_latent = ggml_mul_mat(self.ctx0, model.layers[il].ffn_latent_down, cur);
         }
 
-        ggml_tensor * router_logits = build_lora_mm(model.layers[il].ffn_gate_inp, cur);
-        cb(router_logits, "ffn_moe_logits", il);
+        ggml_tensor * router_logits = self.build_lora_mm(model.layers[il].ffn_gate_inp, cur);
+        self.cb(router_logits, "ffn_moe_logits", il);
 
         ggml_tensor * moe_out =
-            build_moe_ffn(inp_latent,
+            self.build_moe_ffn(inp_latent,
                     model.layers[il].ffn_gate_inp,
                     model.layers[il].ffn_up_exps,
                     nullptr, // no gate
                     model.layers[il].ffn_down_exps,
                     model.layers[il].ffn_exp_probs_b,
-                    n_expert, n_expert_used,
+                    hparams.n_expert, hparams.n_expert_used_impl,
                     LLM_FFN_RELU_SQR, hparams.expert_weights_norm,
                     hparams.expert_weights_scale,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID,
@@ -233,26 +284,126 @@ ggml_tensor * llama_model_nemotron_h::graph::build_ffn_layer(ggml_tensor * cur, 
                     model.layers[il].ffn_up_exps_s,
                     nullptr, // no gate
                     model.layers[il].ffn_down_exps_s);
-        cb(moe_out, "ffn_moe_out", il);
+        self.cb(moe_out, "ffn_moe_out", il);
 
         if (model.layers[il].ffn_latent_up) {
-            moe_out = ggml_mul_mat(ctx0, model.layers[il].ffn_latent_up, moe_out);
+            moe_out = ggml_mul_mat(self.ctx0, model.layers[il].ffn_latent_up, moe_out);
         }
 
-        ggml_tensor * ffn_shexp = build_ffn(inp_emb,
+        ggml_tensor * ffn_shexp = self.build_ffn(inp_emb,
                     model.layers[il].ffn_up_shexp,   NULL, model.layers[il].ffn_up_shexp_s,
                     NULL /* no gate */           ,   NULL, NULL,
                     model.layers[il].ffn_down_shexp, NULL, model.layers[il].ffn_down_shexp_s,
                     NULL,
                     LLM_FFN_RELU_SQR, LLM_FFN_PAR, il);
-        cb(ffn_shexp, "ffn_shexp", il);
+        self.cb(ffn_shexp, "ffn_shexp", il);
 
-        cur = ggml_add(ctx0, moe_out, ffn_shexp);
-        cb(cur, "ffn_out", il);
+        cur = ggml_add(self.ctx0, moe_out, ffn_shexp);
+        self.cb(cur, "ffn_out", il);
     }
 
-    cur = build_cvec(cur, il);
-    cb(cur, "l_out", il);
+    cur = self.build_cvec(cur, il);
+    self.cb(cur, "l_out", il);
 
     return cur;
+}
+
+llama_model_nemotron_h::graph_mtp::graph_mtp(const llama_model & model, const llm_graph_params & params)
+    : llm_graph_context(params) {
+
+    GGML_ASSERT(hparams.nextn_predict_layers > 0 && "Nemotron-H MTP requires nextn_predict_layers > 0");
+
+    const int64_t n_embd_head = hparams.n_embd_head_v();
+    GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+
+    const int il = (int)hparams.n_layer; // first MTP block index
+    const auto & layer = model.layers[il];
+
+    // Verify required NextN tensors exist
+    GGML_ASSERT(layer.nextn.eh_proj && "MTP block missing nextn.eh_proj");
+    GGML_ASSERT(layer.nextn.enorm && "MTP block missing nextn.enorm");
+    GGML_ASSERT(layer.nextn.hnorm && "MTP block missing nextn.hnorm");
+
+    ggml_tensor * cur;
+    ggml_tensor * inpL;
+
+    // Build input embeddings
+    inpL = build_inp_embd(model.tok_embd);
+    cb(inpL, "mtp_inp_embd", il);
+
+    auto * inp = build_inp_mem_hybrid();
+
+    ggml_tensor * inp_pos = build_inp_pos();
+    ggml_tensor * inp_out_ids = build_inp_out_ids();
+
+    // Input for next layer
+    ggml_tensor * inpSA = inpL;
+
+    // Get hidden state and normalize with hnorm
+    cur = build_norm(inpL, layer.nextn.hnorm, nullptr, LLM_NORM_RMS, il);
+    cb(cur, "mtp_hnorm", il);
+
+    // Get token embeddings and normalize with enorm
+    ggml_tensor * tok_embd = ggml_get_rows(ctx0, model.tok_embd, inp->tokens);
+    ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, LLM_NORM_RMS, il);
+    cb(e_norm, "mtp_enorm", il);
+
+    // Concatenate and project with eh_proj
+    ggml_tensor * concat = ggml_concat(ctx0, e_norm, cur, /*dim=*/ 0);
+    cb(concat, "mtp_concat", il);
+
+    cur = build_lora_mm(layer.nextn.eh_proj, concat);
+    cb(cur, "mtp_eh_proj", il);
+
+    // Residual connection from input
+    cur = ggml_add(ctx0, cur, inpSA);
+    cb(cur, "mtp_residual", il);
+
+    // Norm
+    cur = build_norm(cur, layer.attn_norm, nullptr, LLM_NORM_RMS, il);
+    cb(cur, "mtp_attn_norm", il);
+
+    // Attention
+    if (hparams.n_ff(il) == 0) {
+        // Attention block
+        cur = build_attention_layer(*this, cur, inp->get_attn(), model, n_embd_head, il);
+    } else {
+        GGML_ASSERT(false && "MTP first block should be attention");
+    }
+
+    // Residual
+    cur = ggml_add(ctx0, cur, inpSA);
+    cb(cur, "mtp_attn_residual", il);
+
+    // Save for FFN residual
+    ggml_tensor * ffn_residual = cur;
+
+    // MoE FFN
+    cur = build_ffn_layer(*this, cur, model, il);
+    cb(cur, "mtp_ffn_out", il);
+
+    // Residual for FFN
+    cur = ggml_add(ctx0, cur, ffn_residual);
+    cb(cur, "mtp_ffn_residual", il);
+
+    cur = build_cvec(cur, il);
+    cb(cur, "mtp_l_out", il);
+
+    // Final norm
+    cur = build_norm(cur, model.output_norm, nullptr, LLM_NORM_RMS, -1);
+    cb(cur, "mtp_h_nextn", -1);
+
+    if (inp_out_ids) {
+        cur = ggml_get_rows(ctx0, cur, inp_out_ids);
+    }
+
+    cb(cur, "mtp_result_norm", -1);
+    res->t_embd = cur;
+
+    // LM head
+    cur = build_lora_mm(model.output, cur);
+    cb(cur, "mtp_result_output", -1);
+    res->t_logits = cur;
+
+    ggml_build_forward_expand(gf, cur);
 }

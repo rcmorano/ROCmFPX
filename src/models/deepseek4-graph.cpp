@@ -1409,7 +1409,7 @@ llm_build_deepseek4::llm_build_deepseek4(const llama_model & model, const llm_gr
                 layer.ffn_gate_exps,
                 layer.ffn_down_exps,
                 layer.ffn_exp_probs_b,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, hparams.expert_weights_norm,
                 hparams.expert_weights_scale,
                 (llama_expert_gating_func_type) hparams.expert_gating_func,

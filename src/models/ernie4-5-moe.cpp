@@ -84,7 +84,7 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
                                         model.layers[il].ffn_gate_exps,
                                         model.layers[il].ffn_down_exps,
                                         model.layers[il].ffn_exp_probs_b,
-                                        n_expert, n_expert_used,
+                                        n_expert, n_expert_used_impl,
                                         LLM_FFN_SILU, true,
                                         hparams.expert_weights_scale,
                                         LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

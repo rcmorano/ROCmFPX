@@ -2,7 +2,7 @@
 
 void llama_model_hunyuan_moe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,       hparams.f_norm_rms_eps);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
 
     switch (hparams.n_layer) {
@@ -150,7 +150,7 @@ llama_model_hunyuan_moe::graph::graph(const llama_model & model, const llm_graph
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 nullptr,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU,
                 true, // norm_topk_prob
                 hparams.expert_weights_scale,

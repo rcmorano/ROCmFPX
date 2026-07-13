@@ -2,7 +2,7 @@
 
 void llama_model_minimax_m2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,  hparams.f_norm_rms_eps);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,   hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,   hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,           hparams.expert_gating_func, false);
 
     switch (hparams.n_layer) {
@@ -132,7 +132,7 @@ llama_model_minimax_m2::graph::graph(const llama_model & model, const llm_graph_
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 model.layers[il].ffn_exp_probs_b,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, true,
                 hparams.expert_weights_scale,
                 (llama_expert_gating_func_type) hparams.expert_gating_func,

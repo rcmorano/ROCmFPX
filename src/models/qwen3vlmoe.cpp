@@ -3,7 +3,7 @@
 void llama_model_qwen3vlmoe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_NUM_DEEPSTACK_LAYERS, hparams.n_deepstack_layers, false);
     ml.get_key_or_arr(LLM_KV_ROPE_DIMENSION_SECTIONS, hparams.rope_sections, 4, true);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp, false);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_impl, false);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
     switch (hparams.n_layer) {
         case 48: type = LLM_TYPE_30B_A3B; break;
@@ -43,16 +43,16 @@ void llama_model_qwen3vlmoe::load_arch_tensors(llama_model_loader &) {
         if (n_expert == 0) {
             throw std::runtime_error("n_expert must be > 0 for QWEN3MOE");
         }
-        if (n_expert_used == 0) {
-            throw std::runtime_error("n_expert_used must be > 0 for QWEN3MOE");
+        if (n_expert_used_impl == 0) {
+            throw std::runtime_error("n_expert_used_impl must be > 0 for QWEN3MOE");
         }
 
         // MoE branch
-        const int64_t n_ff_exp = hparams.n_ff_exp ? hparams.n_ff_exp : n_ff / n_expert_used;
+        const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl ? hparams.n_ff_exp_impl : n_ff / n_expert_used_impl;
 
-        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
-        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, 0);
-        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
+        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp_impl, n_expert}, 0);
+        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl,   n_embd, n_expert}, 0);
+        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp_impl, n_expert}, 0);
     }
 }
 
@@ -147,7 +147,7 @@ llama_model_qwen3vlmoe::graph::graph(const llama_model & model, const llm_graph_
                     model.layers[il].ffn_gate_exps,
                     model.layers[il].ffn_down_exps,
                     nullptr,
-                    n_expert, n_expert_used,
+                    n_expert, n_expert_used_impl,
                     LLM_FFN_SILU, true,
                     hparams.expert_weights_scale,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

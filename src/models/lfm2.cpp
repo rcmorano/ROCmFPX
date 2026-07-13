@@ -44,11 +44,11 @@ void llama_model_lfm2::load_arch_tensors(llama_model_loader &) {
         // ffn/moe is same for transformer and conv layers
         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
         if (is_moe_layer) {
-            GGML_ASSERT(n_expert && n_expert_used);
+            GGML_ASSERT(n_expert && n_expert_used_impl);
             layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i),  {n_embd, n_expert}, 0);
-            layer.ffn_gate_exps   = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, hparams.n_ff_exp, n_expert}, 0);
-            layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {hparams.n_ff_exp,   n_embd, n_expert}, 0);
-            layer.ffn_up_exps     = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i),   {n_embd, hparams.n_ff_exp, n_expert}, 0);
+            layer.ffn_gate_exps   = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, hparams.n_ff_exp_impl, n_expert}, 0);
+            layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {hparams.n_ff_exp_impl,   n_embd, n_expert}, 0);
+            layer.ffn_up_exps     = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i),   {n_embd, hparams.n_ff_exp_impl, n_expert}, 0);
             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, 0);
         } else {  // dense
             layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
@@ -112,7 +112,7 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 model.layers[il].ffn_exp_probs_b,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, true,
                 hparams.expert_weights_scale,
                 static_cast<llama_expert_gating_func_type>(hparams.expert_gating_func),

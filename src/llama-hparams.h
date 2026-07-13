@@ -47,7 +47,7 @@ struct llama_hparams {
     uint32_t n_layer;
     int32_t n_layer_kv_from_start = -1; // if non-negative, the first n_layer_kv_from_start layers have KV cache
     uint32_t n_expert = 0;
-    uint32_t n_expert_used = 0;
+    uint32_t n_expert_used_impl = 0;
     uint32_t n_rel_attn_bkts = 0;
 
     // different head size for full_attention and SWA layers
@@ -73,13 +73,15 @@ struct llama_hparams {
     std::array<uint32_t, LLAMA_MAX_LAYERS> n_head_arr;
     std::array<uint32_t, LLAMA_MAX_LAYERS> n_head_kv_arr;
     std::array<uint32_t, LLAMA_MAX_LAYERS> n_ff_arr;
+    std::array<uint32_t, LLAMA_MAX_LAYERS> n_ff_exp_arr; // per-layer expert feed-forward size; scalar impl as broadcast fallback
+    std::array<uint32_t, LLAMA_MAX_LAYERS> n_expert_used_arr; // per-layer top-k routing; scalar impl as broadcast fallback
 
     uint32_t n_layer_dense_lead = 0;
     uint32_t n_lora_q           = 0;
     uint32_t n_lora_kv          = 0;
     uint32_t n_lora_o           = 0;
     uint32_t n_attn_out_groups  = 0;
-    uint32_t n_ff_exp           = 0;
+    uint32_t n_ff_exp_impl    = 0; // per-layer expert feed-forward size; falls back to n_ff_exp_impl when array entry is 0
     uint32_t n_ff_shexp         = 0;
     uint32_t n_ff_chexp         = 0;
     uint32_t n_expert_shared    = 0;
@@ -95,6 +97,7 @@ struct llama_hparams {
     uint32_t moe_every_n_layers   = 0;
     uint32_t moe_latent_size      = 0;
     uint32_t nextn_predict_layers = 0;
+    uint32_t n_layer_nextn_per_head = 1; // nextn blocks consumed by one draft head (>1 = multi-block MTP step)
     uint32_t n_hash_layers        = 0;
 
     bool kv_only_nextn = false; // if true, only the last nextn_predict_layers blocks have a KV cache (MTP head arches)

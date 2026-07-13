@@ -34,8 +34,8 @@ void llama_model_olmoe::load_arch_tensors(llama_model_loader &) {
         if (n_expert == 0) {
             throw std::runtime_error("n_expert must be > 0");
         }
-        if (n_expert_used == 0) {
-            throw std::runtime_error("n_expert_used must be > 0");
+        if (n_expert_used_impl == 0) {
+            throw std::runtime_error("n_expert_used_impl must be > 0");
         }
 
         // MoE branch
@@ -139,7 +139,7 @@ llama_model_olmoe::graph::graph(const llama_model & model, const llm_graph_param
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 nullptr,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, false,
                 hparams.expert_weights_scale,
                 LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

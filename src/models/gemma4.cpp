@@ -11,7 +11,7 @@ void llama_model_gemma4::load_arch_hparams(llama_model_loader & ml) {
     hparams.f_attention_scale     = 1.0f; // Gemma4 uses self.scaling = 1.0 (no pre-attn scaling)
 
     ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,          hparams.rope_freq_base_train_swa, false);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp, false);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp_impl, false);
     ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
     ml.get_key(LLM_KV_EMBEDDING_LENGTH_PER_LAYER,  hparams.n_embd_per_layer);
@@ -32,7 +32,7 @@ void llama_model_gemma4::load_arch_tensors(llama_model_loader &) {
     LLAMA_LOAD_LOCALS;
 
     const uint32_t n_embd_per_layer = hparams.n_embd_per_layer;
-    const int64_t  n_ff_exp         = hparams.n_ff_exp;
+    const int64_t  n_ff_exp_impl         = hparams.n_ff_exp_impl;
 
     if (n_embd_head_k != n_embd_head_v) {
         throw std::runtime_error("Gemma 4 requires n_embd_head_k == n_embd_head_v");
@@ -110,14 +110,14 @@ void llama_model_gemma4::load_arch_tensors(llama_model_loader &) {
             layer.ffn_post_norm_2 = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM_2, "weight", i), {n_embd}, 0);
 
             // MoE FFN
-            layer.ffn_gate_up_exps  = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS,  "weight", i), {n_embd, n_ff_exp * 2, n_expert}, TENSOR_NOT_REQUIRED);
+            layer.ffn_gate_up_exps  = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS,  "weight", i), {n_embd, n_ff_exp_impl * 2, n_expert}, TENSOR_NOT_REQUIRED);
 
             if (layer.ffn_gate_up_exps == nullptr) {
-                layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
-                layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
+                layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp_impl, n_expert}, 0);
+                layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp_impl, n_expert}, 0);
             }
 
-            layer.ffn_down_exps     = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS,     "weight", i), {n_ff_exp, n_embd, n_expert}, 0);
+            layer.ffn_down_exps     = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS,     "weight", i), {n_ff_exp_impl, n_embd, n_expert}, 0);
 
             // per-expert scale will be loaded as down_exps_s at the end of the current switch case
         }
@@ -323,7 +323,7 @@ llama_model_gemma4::graph::graph(const llama_model & model, const llm_graph_para
                     model.layers[il].ffn_gate_exps,
                     model.layers[il].ffn_down_exps,
                     nullptr, // exp_probs_b (not used for gemma4)
-                    n_expert, n_expert_used,
+                    n_expert, n_expert_used_impl,
                     LLM_FFN_GELU, true,
                     1.0f,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

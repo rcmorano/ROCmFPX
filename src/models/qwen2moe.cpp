@@ -1,7 +1,7 @@
 #include "models.h"
 
 void llama_model_qwen2moe::load_arch_hparams(llama_model_loader & ml) {
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp, false);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp_impl, false);
     ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
 
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
@@ -36,16 +36,16 @@ void llama_model_qwen2moe::load_arch_tensors(llama_model_loader &) {
         if (n_expert == 0) {
             throw std::runtime_error("n_expert must be > 0 for QWEN2MOE");
         }
-        if (n_expert_used == 0) {
-            throw std::runtime_error("n_expert_used must be > 0 for QWEN2MOE");
+        if (n_expert_used_impl == 0) {
+            throw std::runtime_error("n_expert_used_impl must be > 0 for QWEN2MOE");
         }
 
         // MoE branch
-        const int64_t n_ff_exp = hparams.n_ff_exp ? hparams.n_ff_exp : n_ff / n_expert_used;
+        const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl ? hparams.n_ff_exp_impl : n_ff / n_expert_used_impl;
 
-        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
-        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, 0);
-        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
+        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp_impl, n_expert}, 0);
+        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl,   n_embd, n_expert}, 0);
+        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp_impl, n_expert}, 0);
 
         // Shared expert branch
         const int64_t n_ff_shexp = hparams.n_ff_shexp ? hparams.n_ff_shexp : n_ff;
@@ -134,7 +134,7 @@ llama_model_qwen2moe::graph::graph(const llama_model & model, const llm_graph_pa
                     model.layers[il].ffn_gate_exps,
                     model.layers[il].ffn_down_exps,
                     nullptr,
-                    n_expert, n_expert_used,
+                    n_expert, n_expert_used_impl,
                     LLM_FFN_SILU, false,
                     hparams.expert_weights_scale,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

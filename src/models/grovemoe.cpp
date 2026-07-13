@@ -1,7 +1,7 @@
 #include "models.h"
 
 void llama_model_grovemoe::load_arch_hparams(llama_model_loader & ml) {
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_CHUNK_FEED_FORWARD_LENGTH,  hparams.n_ff_chexp, false);
     ml.get_key(LLM_KV_EXPERT_GROUP_SCALE,                hparams.expert_group_scale);
     ml.get_key(LLM_KV_EXPERTS_PER_GROUP,                 hparams.n_group_experts);
@@ -27,7 +27,7 @@ void llama_model_grovemoe::load_arch_tensors(llama_model_loader &) {
     }
 
     GGML_ASSERT(n_expert > 0 && "n_expert must be > 0 for GROVEMOE");
-    GGML_ASSERT(n_expert_used > 0 && "n_expert_used must be > 0 for GROVEMOE");
+    GGML_ASSERT(n_expert_used_impl > 0 && "n_expert_used_impl must be > 0 for GROVEMOE");
     GGML_ASSERT(hparams.n_group_experts > 0 && "n_group_experts must be > 0 for GROVEMOE");
 
     for (int i = 0; i < n_layer; ++i) {
@@ -46,13 +46,13 @@ void llama_model_grovemoe::load_arch_tensors(llama_model_loader &) {
         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
 
         // MoE branch
-        const int64_t n_ff_exp = hparams.n_ff_exp ? hparams.n_ff_exp : n_ff / n_expert_used;
+        const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl ? hparams.n_ff_exp_impl : n_ff / n_expert_used_impl;
         const int64_t n_ff_chexp = hparams.n_ff_chexp ? hparams.n_ff_chexp : n_embd_head_k;
         const int64_t n_chunk_expert = n_expert / hparams.n_group_experts;
 
-        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
-        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, 0);
-        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp, n_expert}, 0);
+        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {  n_embd, n_ff_exp_impl, n_expert}, 0);
+        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl,   n_embd, n_expert}, 0);
+        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {  n_embd, n_ff_exp_impl, n_expert}, 0);
 
         layer.ffn_gate_chexps = create_tensor(tn(LLM_TENSOR_FFN_GATE_CHEXPS, "weight", i), {  n_embd, n_ff_chexp, n_chunk_expert}, 0);
         layer.ffn_down_chexps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_CHEXPS, "weight", i), {n_ff_chexp,   n_embd, n_chunk_expert}, 0);
@@ -140,7 +140,7 @@ llama_model_grovemoe::graph::graph(const llama_model & model, const llm_graph_pa
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 nullptr,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, true,
                 hparams.expert_weights_scale,
                 LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,
@@ -156,7 +156,7 @@ llama_model_grovemoe::graph::graph(const llama_model & model, const llm_graph_pa
                     model.layers[il].ffn_gate_chexps,
                     model.layers[il].ffn_down_chexps,
                     nullptr,
-                    n_chunk_expert, n_expert_used > n_chunk_expert ? n_chunk_expert : n_expert_used,
+                    n_chunk_expert, n_expert_used_impl > n_chunk_expert ? n_chunk_expert : n_expert_used_impl,
                     LLM_FFN_SILU, true,
                     hparams.expert_weights_scale,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,
