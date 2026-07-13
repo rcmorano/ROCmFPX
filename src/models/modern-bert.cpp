@@ -14,7 +14,7 @@ void llama_model_modern_bert::load_arch_hparams(llama_model_loader & ml) {
 
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS, hparams.f_norm_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 12:
             type = LLM_TYPE_47M; break; // granite-embedding-small
         case 22:
@@ -33,7 +33,7 @@ void llama_model_modern_bert::load_arch_tensors(llama_model_loader &) {
 
     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
 
-    for(int i = 0; i < n_layer; ++i) {
+    for(int i = 0; i < n_layer_all; ++i) {
         auto& layer = layers[i];
 
         if ( i != 0 ) {
@@ -84,7 +84,7 @@ llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph
 
     auto * inp_attn = build_attn_inp_no_cache();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const float freq_base_l  = model.get_rope_freq_base(cparams, il);
         const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
 
@@ -124,7 +124,7 @@ llama_model_modern_bert::graph::graph(const llama_model & model, const llm_graph
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         cb(cur, "kqv_out", il);
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
             inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }

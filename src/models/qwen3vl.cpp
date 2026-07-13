@@ -4,7 +4,7 @@ void llama_model_qwen3vl::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_NUM_DEEPSTACK_LAYERS, hparams.n_deepstack_layers, false);
     ml.get_key_or_arr(LLM_KV_ROPE_DIMENSION_SECTIONS, hparams.rope_sections, 4, true);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 28: type = LLM_TYPE_1_7B; break;
         case 36: type = hparams.n_embd == 2560 ? LLM_TYPE_4B : LLM_TYPE_8B; break;
         case 64: type = LLM_TYPE_32B; break;
@@ -28,7 +28,7 @@ void llama_model_qwen3vl::load_arch_tensors(llama_model_loader &) {
     // output rerank head
     cls_out = create_tensor(tn(LLM_TENSOR_CLS_OUT, "weight"), {n_embd, hparams.n_cls_out}, TENSOR_NOT_REQUIRED);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -74,7 +74,7 @@ llama_model_qwen3vl::graph::graph(const llama_model & model, const llm_graph_par
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * inpSA = inpL;
 
         // norm
@@ -116,7 +116,7 @@ llama_model_qwen3vl::graph::graph(const llama_model & model, const llm_graph_par
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

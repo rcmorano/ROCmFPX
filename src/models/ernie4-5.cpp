@@ -12,7 +12,7 @@ void llama_model_ernie4_5::load_arch_hparams(llama_model_loader & ml) {
         ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead, false);
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 18: type = LLM_TYPE_0_3B; break;
         case 28: type = LLM_TYPE_21B_A3B; break;
         case 54: type = LLM_TYPE_300B_A47B; break;
@@ -33,7 +33,7 @@ void llama_model_ernie4_5::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -92,7 +92,7 @@ llama_model_ernie4_5::graph::graph(const llama_model & model, const llm_graph_pa
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * inpSA = inpL;
 
         // norm
@@ -119,7 +119,7 @@ llama_model_ernie4_5::graph::graph(const llama_model & model, const llm_graph_pa
                     model.layers[il].wo, NULL, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f / sqrtf(float(n_embd_head)), il);
         }
-        if (il == n_layer - 1) {
+        if (il == n_layer_all - 1) {
             // skip computing output for unused tokens
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);

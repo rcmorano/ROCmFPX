@@ -32,7 +32,7 @@ struct llama_quant_model_desc {
     const char * architecture;
     uint32_t n_embd;
     uint32_t n_ff;
-    uint32_t n_layer;
+    uint32_t n_layer_all;
     uint32_t n_head;
     uint32_t n_head_kv;
     uint32_t n_expert;

@@ -4,7 +4,7 @@ void llama_model_nomic_bert_moe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS,    hparams.f_norm_eps);
     ml.get_key(LLM_KV_MOE_EVERY_N_LAYERS,         hparams.moe_every_n_layers, 0);
 
-    if (hparams.n_layer == 12 && hparams.n_embd == 768) {
+    if (hparams.n_layer_all == 12 && hparams.n_embd == 768) {
         if (arch == LLM_ARCH_NOMIC_BERT) {
             type = LLM_TYPE_137M;
         } else if (arch == LLM_ARCH_NOMIC_BERT_MOE && hparams.moe_every_n_layers == 2) {
@@ -35,7 +35,7 @@ void llama_model_nomic_bert_moe::load_arch_tensors(llama_model_loader &) {
     tok_norm   = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "weight", 0), {n_embd}, 0);
     tok_norm_b = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "bias",   0), {n_embd}, 0);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         create_tensor_qkv(layer, i, n_embd, n_embd, n_embd_gqa, n_embd_gqa, 0);

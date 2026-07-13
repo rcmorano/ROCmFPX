@@ -3,7 +3,7 @@
 ggml_cgraph * clip_graph_granite_speech::build() {
     const int n_frames     = img.nx;
     const int context_size = hparams.audio_chunk_size;
-    const int ctc_layer    = n_layer / 2;
+    const int ctc_layer    = n_layer_all / 2;
     const int conv_kernel  = hparams.audio_conv_kernel_size;
     const int conv_pad     = conv_kernel / 2;
 
@@ -31,7 +31,7 @@ ggml_cgraph * clip_graph_granite_speech::build() {
     cur = ggml_add(ctx0, cur, model.inp_proj_b);
     cb(cur, "inp_linear", -1);
 
-    for (int il = 0; il < n_layer; il++) {
+    for (int il = 0; il < n_layer_all; il++) {
         const auto & layer = model.layers[il];
         auto * residual = cur;
 

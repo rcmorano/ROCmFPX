@@ -242,7 +242,7 @@ clip_graph::clip_graph(clip_ctx * ctx, const clip_image_f32 & img) :
         n_head(hparams.n_head),
         n_head_kv(hparams.n_head_kv),
         d_head(n_head > 0 ? n_embd / n_head : 0),
-        n_layer(hparams.n_layer),
+        n_layer_all(hparams.n_layer_all),
         n_mmproj_embd(clip_n_mmproj_embd(ctx)),
         eps(hparams.eps),
         kq_scale(d_head > 0 ? 1.0f / sqrtf((float)d_head) : 0.0f),
@@ -323,7 +323,7 @@ ggml_tensor * clip_graph::build_vit(
     }
 
     // loop over layers
-    for (int il = 0; il < n_layer; il++) {
+    for (int il = 0; il < n_layer_all; il++) {
         auto & layer = model.layers[il];
         ggml_tensor * cur = inpL; // inpL = residual, cur = hidden_states
 
@@ -1133,7 +1133,7 @@ struct clip_model_loader {
             get_u32(string_format(KEY_N_EMBD,         prefix), hparams.n_embd);
             get_u32(string_format(KEY_N_HEAD,         prefix), hparams.n_head);
             get_u32(string_format(KEY_N_FF,           prefix), hparams.n_ff);
-            get_u32(string_format(KEY_N_BLOCK,        prefix), hparams.n_layer);
+            get_u32(string_format(KEY_N_BLOCK,        prefix), hparams.n_layer_all);
             get_u32(string_format(KEY_PROJ_DIM,       prefix), hparams.projection_dim);
             get_f32(string_format(KEY_LAYER_NORM_EPS, prefix), hparams.eps);
 
@@ -1442,7 +1442,7 @@ struct clip_model_loader {
                         get_u32(KEY_ATTN_WINDOW_SIZE, hparams.attn_window_size);
                         std::vector<int> pat;
                         get_arr_int(KEY_WA_PATTERN_MODE, pat, true);
-                        GGML_ASSERT((int) pat.size() == hparams.n_layer && "mimovl wa_pattern_mode length must equal n_layer");
+                        GGML_ASSERT((int) pat.size() == hparams.n_layer_all && "mimovl wa_pattern_mode length must equal n_layer_all");
                         hparams.wa_pattern_mode.assign(pat.begin(), pat.end());
                         get_u32(KEY_IMAGE_MIN_PIXELS, hparams.image_min_pixels);
                         get_u32(KEY_IMAGE_MAX_PIXELS, hparams.image_max_pixels);
@@ -1638,7 +1638,7 @@ struct clip_model_loader {
             LOG_INF("%s: n_embd:             %d\n", __func__, hparams.n_embd);
             LOG_INF("%s: n_head:             %d\n", __func__, hparams.n_head);
             LOG_INF("%s: n_ff:               %d\n", __func__, hparams.n_ff);
-            LOG_INF("%s: n_layer:            %d\n", __func__, hparams.n_layer);
+            LOG_INF("%s: n_layer_all:            %d\n", __func__, hparams.n_layer_all);
             LOG_INF("%s: ffn_op:             %s\n", __func__, log_ffn_op.c_str());
             LOG_INF("%s: projection_dim:     %d\n", __func__, hparams.projection_dim);
             if (is_vision) {
@@ -1763,7 +1763,7 @@ struct clip_model_loader {
             model.proj_type != PROJECTOR_TYPE_GEMMA3NV);
 
         // layers
-        const int n_layers_to_load = has_standard_layers ? hparams.n_layer : 0;
+        const int n_layers_to_load = has_standard_layers ? hparams.n_layer_all : 0;
         model.layers.resize(n_layers_to_load);
         for (int il = 0; il < n_layers_to_load; ++il) {
             auto & layer = model.layers[il];
@@ -2468,7 +2468,7 @@ struct clip_model_loader {
                     model.mm_input_proj_w    = get_tensor(string_format(TN_A_MM_INP_PROJ, "weight"), false);
 
                     // Per-layer tensors NOT loaded by the generic loop above
-                    for (int il = 0; il < hparams.n_layer; ++il) {
+                    for (int il = 0; il < hparams.n_layer_all; ++il) {
                         auto & layer = model.layers[il];
 
                         // Gemma4 audio conformer-specific tensors
@@ -2542,7 +2542,7 @@ struct clip_model_loader {
                     model.mm_3_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 3, "weight"));
                     model.mm_3_b = get_tensor(string_format(TN_MM_AUDIO_MLP, 3, "bias"));
 
-                    for (int il = 0; il < hparams.n_layer; ++il) {
+                    for (int il = 0; il < hparams.n_layer_all; ++il) {
                         auto & layer = model.layers[il];
 
                         layer.ff_norm_w   = get_tensor(string_format(TN_FFN_NORM,   prefix, il, "weight"));
@@ -2582,7 +2582,7 @@ struct clip_model_loader {
                     model.ctc_out_mid_b  = get_tensor(string_format(TN_CTC_OUT_MID, "bias"));
 
                     // per-layer tensors not loaded by the generic loop above
-                    for (int il = 0; il < hparams.n_layer; ++il) {
+                    for (int il = 0; il < hparams.n_layer_all; ++il) {
                         auto & layer = model.layers[il];
 
                         layer.attn_rel_pos_emb = get_tensor(string_format(TN_ATTN_REL_POS_EMB, prefix, il));

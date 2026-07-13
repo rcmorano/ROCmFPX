@@ -17,12 +17,12 @@ void llama_model_qwen3next::load_arch_hparams(llama_model_loader & ml) {
     {
         uint32_t full_attn_interval = 4;
         ml.get_key(LLM_KV_FULL_ATTENTION_INTERVAL, full_attn_interval, false);
-        for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+        for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
             hparams.recurrent_layer_arr[i] = ((i + 1) % full_attn_interval != 0);
         }
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 48: type = LLM_TYPE_80B_A3B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -61,7 +61,7 @@ void llama_model_qwen3next::load_arch_tensors(llama_model_loader &) {
     const int64_t qkvz_dim = key_dim * 2 + value_dim * 2;
     const int64_t ba_dim   = n_v_heads * 2;
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
         const uint32_t n_ff_shexp = hparams.n_ff_shexp > 0 ? hparams.n_ff_shexp : hparams.n_ff(i);
 
@@ -120,7 +120,7 @@ llama_model_qwen3next::graph::graph(const llama_model & model, const llm_graph_p
     ggml_tensor * inp_pos     = build_inp_pos();
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * inpSA = inpL;
 
         cur = build_norm(inpL, model.layers[il].attn_norm, nullptr, LLM_NORM_RMS, il);
@@ -137,7 +137,7 @@ llama_model_qwen3next::graph::graph(const llama_model & model, const llm_graph_p
             cur = build_layer_attn(inp->get_attn(), cur, inp_pos, il);
         }
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

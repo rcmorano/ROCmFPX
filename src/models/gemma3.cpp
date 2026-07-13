@@ -17,7 +17,7 @@ void llama_model_gemma3::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_FINAL_LOGIT_SOFTCAPPING, hparams.f_final_logit_softcapping, false);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 18: type = LLM_TYPE_270M; break;
         case 26: type = LLM_TYPE_1B; break;
         case 32: type = LLM_TYPE_8B; break; // Rnj-1
@@ -52,7 +52,7 @@ void llama_model_gemma3::load_arch_tensors(llama_model_loader &) {
     dense_3_out_layers = create_tensor(tn(LLM_TENSOR_DENSE_3_OUT, "weight"), {hparams.dense_3_feat_in, n_embd}, TENSOR_NOT_REQUIRED);
 
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -108,7 +108,7 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         float freq_base_l  = 0.0f;
         float freq_scale_l = 0.0f;
 
@@ -157,7 +157,7 @@ llama_model_gemma3::graph<iswa>::graph(const llama_model & model, const llm_grap
                     model.layers[il].wo, NULL, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f, il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
             inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }

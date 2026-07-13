@@ -8,11 +8,11 @@ void llama_model_jamba::load_arch_hparams(llama_model_loader & ml) {
 
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
-    for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+    for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
         hparams.recurrent_layer_arr[i] = hparams.n_head_kv(i) == 0;
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         // TODO: Jamba layers are a bit heterogeneous, so naming this is hard.
         case 12: // 900M  8x???M
         case 32: // 51B  16x?B
@@ -44,7 +44,7 @@ void llama_model_jamba::load_arch_tensors(llama_model_loader &) {
         }
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         const int64_t n_head_kv = hparams.n_head_kv(i);
         const int64_t n_embd_gqa = hparams.n_embd_v_gqa(i);
 
@@ -118,7 +118,7 @@ llama_model_jamba::graph::graph(const llama_model & model, const llm_graph_param
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const int64_t n_head_kv = hparams.n_head_kv(il);
 
         cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
@@ -137,7 +137,7 @@ llama_model_jamba::graph::graph(const llama_model & model, const llm_graph_param
                     model.layers[il].wo, NULL, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, NULL, NULL, NULL, 1.0f/sqrtf(float(n_embd_head)), il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
             inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }

@@ -27,11 +27,11 @@ void llama_model_deepseek4::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_INDEXER_TOP_K,      hparams.indexer_top_k, false);
     ml.get_key(LLM_KV_HASH_LAYER_COUNT,             hparams.n_hash_layers);
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,        hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
     ml.get_key(LLM_KV_HYPER_CONNECTION_COUNT,          hparams.n_hc);
     ml.get_key(LLM_KV_HYPER_CONNECTION_SINKHORN_ITERS, hparams.hc_sinkhorn_iters);
     ml.get_key(LLM_KV_HYPER_CONNECTION_EPS,            hparams.hc_eps);
-    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_EXP,     hparams.swiglu_clamp_exp, hparams.n_layer, false);
+    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_EXP,     hparams.swiglu_clamp_exp, hparams.n_layer_all, false);
 
     if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_NONE) {
         hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SQRTSOFTPLUS;
@@ -39,13 +39,13 @@ void llama_model_deepseek4::load_arch_hparams(llama_model_loader & ml) {
 
     std::vector<uint32_t> compress_ratios;
     ml.get_arr(LLM_KV_ATTENTION_COMPRESS_RATIOS, compress_ratios);
-    if (compress_ratios.size() < hparams.n_layer) {
+    if (compress_ratios.size() < hparams.n_layer_all) {
         throw std::runtime_error(format("DeepSeek V4 compress ratio count mismatch: got %zu, expected %u",
-                    compress_ratios.size(), hparams.n_layer));
+                    compress_ratios.size(), hparams.n_layer_all));
     }
-    std::copy_n(compress_ratios.begin(), hparams.n_layer, hparams.attn_compress_ratio.begin());
+    std::copy_n(compress_ratios.begin(), hparams.n_layer_all, hparams.attn_compress_ratio.begin());
 
-    for (uint32_t il = 0; il < hparams.n_layer; ++il) {
+    for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
         const uint32_t ratio = hparams.attn_compress_ratio[il];
         if (ratio == 0) {
             continue;
@@ -99,12 +99,12 @@ void llama_model_deepseek4::load_arch_tensors(llama_model_loader &) {
         norm = create_tensor(tn(indexer ? LLM_TENSOR_INDEXER_COMPRESSOR_NORM : LLM_TENSOR_ATTN_COMPRESSOR_NORM, "weight", bid), {head_size}, 0);
     };
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         const int64_t ratio = hparams.attn_compress_ratio[i];
         const bool is_nextn = hparams.nextn_predict_layers > 0 &&
-            static_cast<uint32_t>(i) >= hparams.n_layer - hparams.nextn_predict_layers;
+            static_cast<uint32_t>(i) >= hparams.n_layer_all - hparams.nextn_predict_layers;
 
         layer.hc_attn_base  = create_tensor(tn(LLM_TENSOR_HC_ATTN_BASE,  "weight", i), {hc_mix}, 0);
         layer.hc_attn_fn    = create_tensor(tn(LLM_TENSOR_HC_ATTN_FN,    "weight", i), {hc_dim, hc_mix}, 0);

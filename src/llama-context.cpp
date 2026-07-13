@@ -78,8 +78,8 @@ llama_context::llama_context(
     cparams.no_perf                 = params.no_perf;
     cparams.warmup                  = false;
 
-    cparams.embeddings_layer_inp.resize(hparams.n_layer, false);
-    embd_layer_inp.resize(hparams.n_layer);
+    cparams.embeddings_layer_inp.resize(hparams.n_layer_all, false);
+    embd_layer_inp.resize(hparams.n_layer_all);
 
     cparams.ctx_type     = params.ctx_type;
     cparams.pooling_type = params.pooling_type;
@@ -385,7 +385,7 @@ llama_context::llama_context(
         // enabling pipeline parallelism in the scheduler increases memory usage, so it is only done when necessary
         bool pipeline_parallel =
             model.n_devices() > 1 &&
-            model.n_gpu_layers() > model.hparams.n_layer &&
+            model.n_gpu_layers() > model.hparams.n_layer_all &&
             model.split_mode() == LLAMA_SPLIT_MODE_LAYER &&
             cparams.offload_kqv &&
             !model.has_tensor_overrides();
@@ -1212,7 +1212,7 @@ void llama_context::set_mtp_source(llama_context * src) {
 void llama_context::set_embeddings_layer_inp(uint32_t lid, bool enable) {
     LLAMA_LOG_DEBUG("%s: lid = %d, enable = %d\n", __func__, lid, enable);
 
-    GGML_ASSERT(lid < model.hparams.n_layer);
+    GGML_ASSERT(lid < model.hparams.n_layer_all);
 
     cparams.embeddings_layer_inp[lid] = enable;
 
@@ -2564,7 +2564,7 @@ llm_graph_cb llama_context::graph_get_cb() const {
 
         // norm may be automatically assigned to the backend of the previous layer, increasing data transfer between backends
         // FIXME: fix in ggml_backend_sched
-        const bool full_offload = model.n_gpu_layers() > model.hparams.n_layer;
+        const bool full_offload = model.n_gpu_layers() > model.hparams.n_layer_all;
         if (ubatch.n_tokens < 32 || full_offload) {
             if (il != -1 && strcmp(name, "norm") == 0) {
                 const auto & dev_layer = model.dev_layer(il);
@@ -3697,7 +3697,7 @@ llama_context * llama_init_from_model(
 
     if (params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED && ggml_is_quantized(params.type_k)) {
         const uint32_t blck_size = ggml_blck_size(params.type_k);
-        for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
+        for (uint32_t il = 0; il < model->hparams.n_layer_all; ++il) {
             if (model->hparams.n_embd_head_k(il) % blck_size != 0) {
                 LLAMA_LOG_ERROR("%s: K cache type %s with block size %u does not divide n_embd_head_k=%u\n",
                     __func__, ggml_type_name(params.type_k), blck_size, model->hparams.n_embd_head_k(il));
@@ -3708,7 +3708,7 @@ llama_context * llama_init_from_model(
 
     if (params.flash_attn_type != LLAMA_FLASH_ATTN_TYPE_DISABLED && ggml_is_quantized(params.type_v)) {
         const uint32_t blck_size = ggml_blck_size(params.type_v);
-        for (uint32_t il = 0; il < model->hparams.n_layer; ++il) {
+        for (uint32_t il = 0; il < model->hparams.n_layer_all; ++il) {
             if (model->hparams.n_embd_head_v(il) % blck_size != 0) {
                 LLAMA_LOG_ERROR("%s: V cache type %s with block size %u does not divide n_embd_head_v=%u\n",
                     __func__, ggml_type_name(params.type_v), blck_size, model->hparams.n_embd_head_v(il));

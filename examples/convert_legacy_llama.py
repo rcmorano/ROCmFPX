@@ -164,7 +164,7 @@ GGML_FILE_TYPE_TO_DATA_TYPE: dict[GGMLFileType, DataType] = {
 class Params:
     n_vocab:        int
     n_embd:         int
-    n_layer:        int
+    n_layer_all:        int
     n_ctx:          int
     n_ff:           int
     n_head:         int
@@ -191,15 +191,15 @@ class Params:
 
         # try transformer naming first
         if "model.layers.0.self_attn.q_proj.weight" in model:
-            n_layer = next(i for i in itertools.count() if f"model.layers.{i}.self_attn.q_proj.weight" not in model)
+            n_layer_all = next(i for i in itertools.count() if f"model.layers.{i}.self_attn.q_proj.weight" not in model)
         elif "model.layers.0.self_attn.W_pack.weight" in model:   # next: try baichuan naming
-            n_layer = next(i for i in itertools.count() if f"model.layers.{i}.self_attn.W_pack.weight" not in model)
+            n_layer_all = next(i for i in itertools.count() if f"model.layers.{i}.self_attn.W_pack.weight" not in model)
         else:
-            n_layer = next(i for i in itertools.count() if f"layers.{i}.attention.wq.weight" not in model)
+            n_layer_all = next(i for i in itertools.count() if f"layers.{i}.attention.wq.weight" not in model)
 
-        if n_layer < 1:
+        if n_layer_all < 1:
             msg = """\
-                failed to guess 'n_layer'. This model is unknown or unsupported.
+                failed to guess 'n_layer_all'. This model is unknown or unsupported.
                 Suggestion: provide 'config.json' of the model in the same directory containing model files."""
             raise KeyError(textwrap.dedent(msg))
 
@@ -213,7 +213,7 @@ class Params:
         return Params(
             n_vocab    = n_vocab,
             n_embd     = n_embd,
-            n_layer    = n_layer,
+            n_layer_all    = n_layer_all,
             n_ctx      = -1,
             n_ff       = n_ff,
             n_head     = n_head,
@@ -261,7 +261,7 @@ class Params:
         return Params(
             n_vocab           = config["vocab_size"],
             n_embd            = config["hidden_size"],
-            n_layer           = config["num_hidden_layers"],
+            n_layer_all           = config["num_hidden_layers"],
             n_ctx             = n_ctx,
             n_ff              = config["intermediate_size"],
             n_head            = (n_head := config["num_attention_heads"]),
@@ -316,7 +316,7 @@ class Params:
         return Params(
             n_vocab          = model["tok_embeddings.weight"].shape[0],
             n_embd           = config["dim"],
-            n_layer          = config["n_layers"],
+            n_layer_all          = config["n_layers"],
             n_ctx            = n_ctx,
             n_ff             = n_ff,
             n_head           = (n_head := config["n_heads"]),
@@ -883,7 +883,7 @@ class OutputFile:
         self.gguf.add_vocab_size(params.n_vocab)
         self.gguf.add_context_length(params.n_ctx)
         self.gguf.add_embedding_length(params.n_embd)
-        self.gguf.add_block_count(params.n_layer)
+        self.gguf.add_block_count(params.n_layer_all)
         self.gguf.add_feed_forward_length(params.n_ff)
         self.gguf.add_rope_dimension_count(params.n_embd // params.n_head)
         self.gguf.add_head_count          (params.n_head)
@@ -1098,14 +1098,14 @@ def convert_to_output_type(model: LazyModel, output_type: GGMLFileType) -> LazyM
 
 
 def convert_model_names(model: LazyModel, params: Params, skip_unknown: bool) -> LazyModel:
-    tmap = gguf.TensorNameMap(ARCH, params.n_layer)
+    tmap = gguf.TensorNameMap(ARCH, params.n_layer_all)
     should_skip = set(gguf.MODEL_TENSOR_SKIP.get(ARCH, []))
 
     tmp = model
 
     # merge experts into one tensor
     if params.n_experts and params.n_experts > 0:
-        for i_l in range(params.n_layer):
+        for i_l in range(params.n_layer_all):
             for w in range(1, 4):
                 experts = []
                 for e in range(params.n_experts):
@@ -1417,7 +1417,7 @@ def main(args_in: list[str] | None = None) -> None:
             params = Params(
                 n_vocab    = vocab.vocab_size,
                 n_embd     = 1,
-                n_layer    = 1,
+                n_layer_all    = 1,
                 n_ctx      = 1,
                 n_ff       = 1,
                 n_head     = 1,

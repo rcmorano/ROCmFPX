@@ -26,12 +26,12 @@ enum llama_swa_type {
 
 struct llama_hparams_posnet {
     uint32_t n_embd;
-    uint32_t n_layer;
+    uint32_t n_layer_all;
 };
 
 struct llama_hparams_convnext {
     uint32_t n_embd;
-    uint32_t n_layer;
+    uint32_t n_layer_all;
 };
 
 struct llama_hparams {
@@ -44,7 +44,7 @@ struct llama_hparams {
 
     uint32_t n_ctx_train; // context size the model was trained on
     uint32_t n_embd;
-    uint32_t n_layer;
+    uint32_t n_layer_all;
     int32_t n_layer_kv_from_start = -1; // if non-negative, the first n_layer_kv_from_start layers have KV cache
     uint32_t n_expert = 0;
     uint32_t n_expert_used_impl = 0;
@@ -97,6 +97,7 @@ struct llama_hparams {
     uint32_t moe_every_n_layers   = 0;
     uint32_t moe_latent_size      = 0;
     uint32_t nextn_predict_layers = 0;
+    uint32_t n_layer_nextn        = 0; // total number of nextn blocks (MTP/NEXTN layers)
     uint32_t n_layer_nextn_per_head = 1; // nextn blocks consumed by one draft head (>1 = multi-block MTP step)
     uint32_t n_hash_layers        = 0;
 
@@ -339,6 +340,9 @@ struct llama_hparams {
 
     // number of layers for which has_kv() returns true
     uint32_t n_layer_kv() const;
+
+    // number of main decoder layers (excludes MTP/NEXTN)
+    uint32_t n_layer() const;
 
     // note that this function uses different SWA parameters from those in the hparams
     // note: inlined on purpose for performance reasons

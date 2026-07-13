@@ -8,7 +8,7 @@ void llama_model_llama4::load_arch_hparams(llama_model_loader & ml) {
     const bool found_swa = ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW, hparams.n_swa, false);
     if (found_swa && hparams.n_swa == 0) {
         hparams.swa_type             = LLAMA_SWA_TYPE_NONE;
-        hparams.n_no_rope_layer_step = hparams.n_layer; // always use rope
+        hparams.n_no_rope_layer_step = hparams.n_layer_all; // always use rope
     } else {
         hparams.swa_type                = LLAMA_SWA_TYPE_CHUNKED;
         hparams.n_swa                   = 8192;
@@ -59,7 +59,7 @@ void llama_model_llama4::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         const bool is_moe_layer = hparams.n_moe_layer_step > 0 && (i + 1) % hparams.n_moe_layer_step == 0;
 
         auto & layer = layers[i];
@@ -134,7 +134,7 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const float freq_base_l  = model.get_rope_freq_base (cparams, il);
         const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
 
@@ -190,7 +190,7 @@ llama_model_llama4::graph<iswa>::graph(const llama_model & model, const llm_grap
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
             cb(cur, "attn_out", il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

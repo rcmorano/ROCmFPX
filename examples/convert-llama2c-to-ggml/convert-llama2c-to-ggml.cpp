@@ -228,7 +228,7 @@ struct my_llama_hparams {
     uint32_t n_mult    = 4;
     uint32_t n_head    = 32;
     uint32_t n_head_kv = 32;
-    uint32_t n_layer   = 32;
+    uint32_t n_layer_all   = 32;
     uint32_t n_rot     = 64;
 
     bool operator!=(const my_llama_hparams& other) const {
@@ -289,7 +289,7 @@ struct train_params {
     int n_embd;
     int n_mult;
     int n_head;
-    int n_layer;
+    int n_layer_all;
     int n_rotmax;
 
     int n_threads;
@@ -330,7 +330,7 @@ static void print_params(struct my_llama_hparams * params) {
     LOG_INF("%s: n_head:    %u\n", __func__, params->n_head);
     LOG_INF("%s: n_head_kv: %u\n", __func__, params->n_head_kv);
     LOG_INF("%s: n_ff:      %u\n", __func__, params->n_ff);
-    LOG_INF("%s: n_layer:   %u\n", __func__, params->n_layer);
+    LOG_INF("%s: n_layer_all:   %u\n", __func__, params->n_layer_all);
     LOG_INF("%s: n_rot:     %u\n", __func__, params->n_rot);
 }
 
@@ -353,7 +353,7 @@ static void init_model(struct my_llama_model * model) {
     const auto & hparams = model->hparams;
 
     const uint32_t n_embd  = hparams.n_embd;
-    const uint32_t n_layer = hparams.n_layer;
+    const uint32_t n_layer_all = hparams.n_layer_all;
     const uint32_t n_vocab = hparams.n_vocab;
 
     const uint32_t n_multiqueries = hparams.n_head_kv <= 0 || hparams.n_head_kv >= hparams.n_head ? 1 : hparams.n_head / hparams.n_head_kv;
@@ -373,8 +373,8 @@ static void init_model(struct my_llama_model * model) {
     ggml_set_name(model->norm,           "norm.weight");
     ggml_set_name(model->output,         "output.weight");
 
-    model->layers.resize(n_layer);
-    for (uint32_t i = 0; i < n_layer; ++i) {
+    model->layers.resize(n_layer_all);
+    for (uint32_t i = 0; i < n_layer_all; ++i) {
         auto & layer = model->layers[i];
 
         std::string layers_i = "layers." + std::to_string(i);
@@ -652,7 +652,7 @@ static void save_as_llama_model(
 
     const uint32_t n_multiqueries = model->hparams.n_head_kv <= 0 || model->hparams.n_head_kv >= model->hparams.n_head ? 1 : model->hparams.n_head / model->hparams.n_head_kv;
 
-    for (uint32_t i = 0; i < model->hparams.n_layer; ++i){
+    for (uint32_t i = 0; i < model->hparams.n_layer_all; ++i){
         auto & layer = model->layers[i];
         // 1d
         convert_weights_ak_to_gg(layer.attention_norm, &w->rms_att_weight[i*row_length]);
@@ -702,7 +702,7 @@ static void save_as_llama_model(
     gguf_set_val_u32(ctx, KV_ATTENTION_HEAD_COUNT, model->hparams.n_head);
     gguf_set_val_u32(ctx, KV_ATTENTION_HEAD_COUNT, model->hparams.n_head);
     gguf_set_val_u32(ctx, KV_ATTENTION_HEAD_COUNT_KV, model->hparams.n_head_kv);
-    gguf_set_val_u32(ctx, KV_BLOCK_COUNT, model->hparams.n_layer);
+    gguf_set_val_u32(ctx, KV_BLOCK_COUNT, model->hparams.n_layer_all);
     gguf_set_val_u32(ctx, KV_ROPE_DIMENSION_COUNT, model->hparams.n_rot);
     gguf_set_val_f32(ctx, KV_ATTENTION_LAYERNORM_RMS_EPS, 1e-5f);
 
@@ -716,7 +716,7 @@ static void save_as_llama_model(
     ggml_set_name(model->output, TN_OUTPUT);
     gguf_add_tensor(ctx, model->output);
 
-    for (uint32_t i = 0; i < model->hparams.n_layer; ++i) {
+    for (uint32_t i = 0; i < model->hparams.n_layer_all; ++i) {
         auto & layer = model->layers[i];
 
         ggml_format_name(layer.wq, TN_ATTN_Q, i);
@@ -766,7 +766,7 @@ static struct train_params get_default_train_params() {
     params.n_embd     =  256;
     params.n_mult     =  256;
     params.n_head     =    8;
-    params.n_layer    =   16;
+    params.n_layer_all    =   16;
     params.n_rotmax   =   64;
 
     params.n_threads  =    6;
@@ -922,7 +922,7 @@ int main(int argc, char ** argv) {
     model.hparams.n_mult    = 32;//params.n_mult;
     model.hparams.n_head    = config.n_heads; //params.n_head;
     model.hparams.n_head_kv = config.n_kv_heads;
-    model.hparams.n_layer   = config.n_layers; //params.n_layer;
+    model.hparams.n_layer_all   = config.n_layers; //params.n_layer_all;
     model.hparams.n_rot     = std::min((uint32_t)params.n_rotmax, model.hparams.n_embd / model.hparams.n_head);
 
     print_params(&model.hparams);

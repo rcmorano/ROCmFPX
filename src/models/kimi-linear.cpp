@@ -14,7 +14,7 @@ void llama_model_kimi_linear::load_arch_hparams(llama_model_loader & ml) {
 
     // Mark KDA layers as recurrent using n_head_kv pattern (like Jamba)
     // Set n_head_kv = 0 for KDA layers (recurrent), n_head_kv = n_head for MLA layers (attention)
-    for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+    for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
         hparams.recurrent_layer_arr[i] = hparams.n_head_kv(i) == 0;  // KDA layers are recurrent
     }
 
@@ -25,7 +25,7 @@ void llama_model_kimi_linear::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 27: type = LLM_TYPE_48B_A3B; break; // Kimi-Linear-48B-A3B
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -40,7 +40,7 @@ void llama_model_kimi_linear::load_arch_tensors(llama_model_loader &) {
     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, 0);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -275,7 +275,7 @@ llama_model_kimi_linear::graph::graph(const llama_model & model, const llm_graph
     // Attention scale for MLA
     const float kq_scale_mla = 1.0f / sqrtf((float)n_embd_head_k_mla);
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const auto & layer = model.layers[il];
         ggml_tensor * inpSA = inpL;
 
@@ -473,7 +473,7 @@ llama_model_kimi_linear::graph::graph(const llama_model & model, const llm_graph
         }
 
         // On last layer, select only the output tokens
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur,   inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

@@ -8,7 +8,7 @@ void llama_model_mimo2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,   hparams.n_swa);
     ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,         hparams.rope_freq_base_train_swa, false);
-    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer_all);
 
     float value_scale = 0.0f;
     if (ml.get_key(LLM_KV_ATTENTION_VALUE_SCALE, value_scale, false) && value_scale != 1.0f) {
@@ -16,10 +16,10 @@ void llama_model_mimo2::load_arch_hparams(llama_model_loader & ml) {
     }
 
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
-    hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
+    hparams.n_layer_kv_from_start = hparams.n_layer_all - hparams.nextn_predict_layers;
 
-    switch (hparams.n_layer - hparams.nextn_predict_layers) {
+    switch (hparams.n_layer_all - hparams.nextn_predict_layers) {
         case 48: type = LLM_TYPE_310B_A15B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -36,14 +36,14 @@ void llama_model_mimo2::load_arch_tensors(llama_model_loader &) {
 
     const uint32_t n_nextn = hparams.nextn_predict_layers;
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
         uint32_t n_embd_k_gqa = hparams.n_embd_k_gqa(i);
         uint32_t n_embd_v_gqa = hparams.n_embd_v_gqa(i);
         uint32_t n_head = hparams.n_head(i);
 
         // NextN/MTP layers (the last n_nextn blocks) are preserved but disabled pending support
-        const bool is_nextn = (n_nextn > 0) && (static_cast<uint32_t>(i) >= n_layer - n_nextn);
+        const bool is_nextn = (n_nextn > 0) && (static_cast<uint32_t>(i) >= n_layer_all - n_nextn);
         const int  skip     = is_nextn ? TENSOR_SKIP : 0;
 
         create_tensor_qkv(layer, i, n_embd, n_embd_head_k * n_head, n_embd_k_gqa, n_embd_v_gqa, skip);
@@ -93,7 +93,7 @@ llama_model_mimo2::graph::graph(const llama_model & model, const llm_graph_param
     const float v_scale = hparams.f_attn_value_scale;
 
     // The last hparams.nextn_predict_layers blocks are MTP heads, currently inactive
-    const int n_transformer_layers = n_layer - hparams.nextn_predict_layers;
+    const int n_transformer_layers = n_layer_all - hparams.nextn_predict_layers;
 
     for (int il = 0; il < n_transformer_layers; ++il) {
         ggml_tensor * inpSA = inpL;

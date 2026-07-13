@@ -10,12 +10,12 @@ void llama_model_bailingmoe2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,               hparams.expert_weights_norm, false);
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func);
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,              hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
 
     // TODO: when MTP is implemented, this should probably be updated if needed
-    hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
+    hparams.n_layer_kv_from_start = hparams.n_layer_all - hparams.nextn_predict_layers;
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 20: type = LLM_TYPE_16B_A1B; break;
         case 21: type = LLM_TYPE_16B_A1B; break;
         case 32: type = LLM_TYPE_100B_A6B; break;
@@ -39,9 +39,9 @@ void llama_model_bailingmoe2::load_arch_tensors(llama_model_loader &) {
     GGML_ASSERT(n_expert > 0 && "n_expert must be > 0 for bailingmoe2");
     GGML_ASSERT(n_expert_used_impl > 0 && "n_expert_used_impl must be > 0 for bailingmoe2");
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         int flags = 0;
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             // skip all tensors in the NextN layers
             flags |= TENSOR_SKIP;
         }
@@ -78,7 +78,7 @@ void llama_model_bailingmoe2::load_arch_tensors(llama_model_loader &) {
         }
 
         // NextN/MTP tensors (preserved but unused) - conditionally load for last nextn_predict_layers
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             layer.nextn.eh_proj          = create_tensor(tn(LLM_TENSOR_NEXTN_EH_PROJ, "weight", i), { 2 * n_embd, n_embd }, flags);
             layer.nextn.embed_tokens     = create_tensor(tn(LLM_TENSOR_NEXTN_EMBED_TOKENS, "weight", i), { n_embd, n_vocab }, TENSOR_NOT_REQUIRED | flags);
             layer.nextn.enorm            = create_tensor(tn(LLM_TENSOR_NEXTN_ENORM, "weight", i), { n_embd }, flags);
@@ -112,7 +112,7 @@ llama_model_bailingmoe2::graph::graph(const llama_model & model, const llm_graph
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    const int n_transformer_layers = n_layer - hparams.nextn_predict_layers;
+    const int n_transformer_layers = n_layer_all - hparams.nextn_predict_layers;
     for (int il = 0; il < n_transformer_layers; ++il) {
         ggml_tensor * inpSA = inpL;
 

@@ -14,7 +14,7 @@ void llama_model_deepseek2ocr::load_arch_hparams(llama_model_loader & ml) {
         hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX;
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 12: type = LLM_TYPE_3B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -37,7 +37,7 @@ void llama_model_deepseek2ocr::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q, "weight", i), {n_embd, n_embd}, 0);

@@ -12,7 +12,7 @@ void llama_model_hyv3::load_arch_hparams(llama_model_loader & ml) {
         hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID;
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 48: type = LLM_TYPE_30B_A3B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -29,7 +29,7 @@ void llama_model_hyv3::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
         const int64_t n_ff_exp_impl   = hparams.n_ff_exp_impl   ? hparams.n_ff_exp_impl   : n_ff / (n_expert_used_impl > 0 ? n_expert_used_impl : 1);
         const int64_t n_ff_shexp = hparams.n_ff_shexp ? hparams.n_ff_shexp : n_ff_exp_impl;
@@ -79,7 +79,7 @@ llama_model_hyv3::graph::graph(const llama_model & model, const llm_graph_params
 
     const float kq_scale = 1.0f / sqrtf(float(n_embd_head));
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * inpSA = inpL;
 
         cur = build_norm(inpL, model.layers[il].attn_norm, nullptr, LLM_NORM_RMS, il);
@@ -106,7 +106,7 @@ llama_model_hyv3::graph::graph(const llama_model & model, const llm_graph_params
             cb(cur, "attn_out", il);
         }
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

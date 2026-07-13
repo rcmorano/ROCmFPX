@@ -85,19 +85,19 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
     uint32_t n_embd  = 256;
     uint32_t n_head  = 2;
     uint32_t n_ff    = 384;
-    uint32_t n_layer = 2;
+    uint32_t n_layer_all = 2;
     if (arch == LLM_ARCH_LLAMA4) {
-        n_layer = 4; // hparams.n_no_rope_layer_step is hard-coded to 4
+        n_layer_all = 4; // hparams.n_no_rope_layer_step is hard-coded to 4
     } else if (arch == LLM_ARCH_GEMMA4) {
         n_embd = 128;
         n_head = 2;
         n_ff   = 192;
-        n_layer = 5; // need at least 5 for swa_pattern (every 5th is full_attention)
+        n_layer_all = 5; // need at least 5 for swa_pattern (every 5th is full_attention)
     } else if (arch == LLM_ARCH_GEMMA3N) {
         n_embd = 64;
         n_head = 1;
         n_ff   = 96;
-        n_layer = 22; // hparams.n_layer_kv_from_start = 20 is hardcoded
+        n_layer_all = 22; // hparams.n_layer_kv_from_start = 20 is hardcoded
     } else if (arch == LLM_ARCH_DEEPSEEK2
             || arch == LLM_ARCH_GLM_DSA
             || arch == LLM_ARCH_KIMI_LINEAR
@@ -106,7 +106,7 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
         n_head = 1;
         n_ff   = 192;
     } else if (arch == LLM_ARCH_NEMOTRON_H || arch == LLM_ARCH_NEMOTRON_H_MOE) {
-        n_layer = 3;
+        n_layer_all = 3;
     } else if (arch == LLM_ARCH_CHAMELEON) {
         n_vocab = 10240;
     }
@@ -118,13 +118,13 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
     ms.add_kv(LLM_KV_CONTEXT_LENGTH,            n_ctx);
     ms.add_kv(LLM_KV_EMBEDDING_LENGTH,          n_embd);
     ms.add_kv(LLM_KV_FEATURES_LENGTH,           n_embd);
-    ms.add_kv(LLM_KV_BLOCK_COUNT,               n_layer);
+    ms.add_kv(LLM_KV_BLOCK_COUNT,               n_layer_all);
     ms.add_kv(LLM_KV_LEADING_DENSE_BLOCK_COUNT, uint32_t(1));
 
     if (arch == LLM_ARCH_NEMOTRON_H || arch == LLM_ARCH_NEMOTRON_H_MOE) {
         std::vector<uint32_t> n_ff_per_layer;
-        n_ff_per_layer.reserve(n_layer);
-        for (uint32_t il = 0; il < n_layer; il++) {
+        n_ff_per_layer.reserve(n_layer_all);
+        for (uint32_t il = 0; il < n_layer_all; il++) {
             n_ff_per_layer.push_back(il <= 1 ? 0 : n_ff);
         }
         ms.add_kv(LLM_KV_FEED_FORWARD_LENGTH, n_ff_per_layer);
@@ -140,10 +140,10 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
 
     if (arch == LLM_ARCH_PLAMO2 || arch == LLM_ARCH_JAMBA || arch == LLM_ARCH_NEMOTRON_H || arch == LLM_ARCH_NEMOTRON_H_MOE ||
             arch == LLM_ARCH_GRANITE_HYBRID || arch == LLM_ARCH_LFM2 || arch == LLM_ARCH_LFM2MOE || arch == LLM_ARCH_KIMI_LINEAR) {
-        GGML_ASSERT(n_layer >= 2);
+        GGML_ASSERT(n_layer_all >= 2);
         std::vector<uint32_t> n_head_per_layer;
-        n_head_per_layer.reserve(n_layer);
-        for (uint32_t il = 0; il < n_layer; il++) {
+        n_head_per_layer.reserve(n_layer_all);
+        for (uint32_t il = 0; il < n_layer_all; il++) {
             n_head_per_layer.push_back(il == 1 ? 0 : n_head);
         }
         ms.add_kv(LLM_KV_ATTENTION_HEAD_COUNT, n_head_per_layer);
@@ -184,8 +184,8 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
         ms.add_kv(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, uint32_t(5));
     } else if (arch == LLM_ARCH_MIMO2 || arch == LLM_ARCH_STEP35) {
         std::vector<uint32_t> pattern;
-        pattern.reserve(n_layer);
-        for (uint32_t il = 0; il < n_layer; il++) {
+        pattern.reserve(n_layer_all);
+        for (uint32_t il = 0; il < n_layer_all; il++) {
             pattern.push_back(il % 2);
         }
         ms.add_kv(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, pattern);
@@ -213,9 +213,9 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
     }
 
     ms.add_kv(LLM_KV_POSNET_EMBEDDING_LENGTH,   n_embd);
-    ms.add_kv(LLM_KV_POSNET_BLOCK_COUNT,        n_layer);
+    ms.add_kv(LLM_KV_POSNET_BLOCK_COUNT,        n_layer_all);
     ms.add_kv(LLM_KV_CONVNEXT_EMBEDDING_LENGTH, n_embd);
-    ms.add_kv(LLM_KV_CONVNEXT_BLOCK_COUNT,      n_layer);
+    ms.add_kv(LLM_KV_CONVNEXT_BLOCK_COUNT,      n_layer_all);
     ms.add_kv(LLM_KV_XIELU_ALPHA_N,             1.0f);
     ms.add_kv(LLM_KV_XIELU_ALPHA_P,             1.0f);
     ms.add_kv(LLM_KV_XIELU_BETA,                1.0f);
@@ -229,7 +229,7 @@ static gguf_context_ptr get_gguf_ctx(const llm_arch arch, const bool moe) {
     ms.add_kv(LLM_KV_WKV_HEAD_SIZE,             n_embd/n_head);
     ms.add_kv(LLM_KV_SHORTCONV_L_CACHE,         uint32_t(3));
 
-    for (uint32_t il = 0; il < n_layer; il++) {
+    for (uint32_t il = 0; il < n_layer_all; il++) {
         ggml_tensor t;
         memset(&t, 0, sizeof(ggml_tensor));
         t.type = GGML_TYPE_F16;

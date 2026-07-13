@@ -941,7 +941,7 @@ llm_build_deepseek4::llm_build_deepseek4(const llama_model & model, const llm_gr
     GGML_ASSERT(n_out_group > 0);
     GGML_ASSERT(n_embd_head_k == n_embd_head_v);
     const bool is_mtp = params.gtype == LLM_GRAPH_TYPE_DECODER_MTP;
-    const int n_main_layers = n_layer - (int) hparams.nextn_predict_layers;
+    const int n_main_layers = n_layer_all - (int) hparams.nextn_predict_layers;
     GGML_ASSERT(n_main_layers > 0);
     if (is_mtp) {
         GGML_ASSERT(hparams.nextn_predict_layers == 1 && "DeepSeek V4 MTP currently supports one appended prediction layer");
@@ -1010,7 +1010,7 @@ llm_build_deepseek4::llm_build_deepseek4(const llama_model & model, const llm_gr
     const float kq_scale = 1.0f / std::sqrt(float(n_embd_head_k));
 
     const int il_begin = is_mtp ? n_main_layers : 0;
-    const int il_end   = is_mtp ? n_layer : n_main_layers;
+    const int il_end   = is_mtp ? n_layer_all : n_main_layers;
     for (int il = il_begin; il < il_end; ++il) {
         const auto & layer = model.layers[il];
         const uint32_t compress_ratio = hparams.attn_compress_ratio[il];

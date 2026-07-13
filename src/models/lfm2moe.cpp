@@ -9,11 +9,11 @@ void llama_model_lfm2moe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,          hparams.expert_gating_func);
 
-    for (uint32_t il = 0; il < hparams.n_layer; ++il) {
+    for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
         hparams.recurrent_layer_arr[il] = hparams.n_head_kv(il) == 0;
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 24: type = LLM_TYPE_8B_A1B;  break;
         case 40: type = LLM_TYPE_24B_A2B; break;
         default: type = LLM_TYPE_UNKNOWN;
@@ -32,7 +32,7 @@ void llama_model_lfm2moe::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         const bool is_moe_layer = i >= static_cast<int>(hparams.n_layer_dense_lead);

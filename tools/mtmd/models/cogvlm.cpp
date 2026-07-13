@@ -15,7 +15,7 @@ ggml_cgraph * clip_graph_cogvlm::build() {
 
     ggml_tensor * inpL = inp;
 
-    for (int il = 0; il < n_layer; il++) {
+    for (int il = 0; il < n_layer_all; il++) {
         auto & layer = model.layers[il];
         ggml_tensor * cur = inpL;
 

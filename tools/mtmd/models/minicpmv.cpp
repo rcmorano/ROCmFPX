@@ -307,10 +307,10 @@ ggml_cgraph * clip_graph_minicpmv4_6::build() {
         cb(inpL, "vit_merger_ds_out", -1);
     }
 
-    // ViT layers (insert_layer_id+1)..n_layer-1, operating on the downsampled tokens
+    // ViT layers (insert_layer_id+1)..n_layer_all-1, operating on the downsampled tokens
     {
         const int64_t n_pos_ds = n_ds;
-        for (int il = insert_lid + 1; il < n_layer; il++) {
+        for (int il = insert_lid + 1; il < n_layer_all; il++) {
             auto & layer = model.layers[il];
             ggml_tensor * cur = inpL;
 

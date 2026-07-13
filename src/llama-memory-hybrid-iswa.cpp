@@ -171,7 +171,7 @@ llama_memory_hybrid_iswa::llama_memory_hybrid_iswa(
     const ggml_type dsv4_cache_type_k = ggml_is_quantized(type_k) ? GGML_TYPE_F16 : type_k;
 
     dsv4_n_seq_max = n_seq_max;
-    dsv4_cache_layers.resize(hparams.n_layer);
+    dsv4_cache_layers.resize(hparams.n_layer_all);
 
     struct ggml_backend_buft_comparator {
         bool operator()(const ggml_backend_buffer_type_t & lhs, const ggml_backend_buffer_type_t & rhs) const {
@@ -184,7 +184,7 @@ llama_memory_hybrid_iswa::llama_memory_hybrid_iswa(
         auto it = ctx_map.find(buft);
         if (it == ctx_map.end()) {
             ggml_init_params params = {
-                /*.mem_size   =*/ size_t(2u*hparams.n_layer*ggml_tensor_overhead()),
+                /*.mem_size   =*/ size_t(2u*hparams.n_layer_all*ggml_tensor_overhead()),
                 /*.mem_buffer =*/ nullptr,
                 /*.no_alloc   =*/ true,
             };
@@ -201,7 +201,7 @@ llama_memory_hybrid_iswa::llama_memory_hybrid_iswa(
         return it->second.get();
     };
 
-    for (uint32_t il = 0; il < hparams.n_layer; ++il) {
+    for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
         const uint32_t ratio = hparams.attn_compress_ratio[il];
         if (ratio == 0) {
             continue;
@@ -585,15 +585,15 @@ void llama_memory_hybrid_iswa::dsv4_state_write(llama_io_write_i & io, llama_seq
 
     const uint32_t magic   = DSV4_COMPRESSED_KV_STATE_MAGIC;
     const uint32_t version = DSV4_COMPRESSED_KV_STATE_VERSION;
-    const uint32_t n_layer = hparams.n_layer;
+    const uint32_t n_layer_all = hparams.n_layer_all;
     const uint32_t n_seq   = seq_ids.size();
 
     io.write(&magic,   sizeof(magic));
     io.write(&version, sizeof(version));
-    io.write(&n_layer, sizeof(n_layer));
+    io.write(&n_layer_all, sizeof(n_layer_all));
     io.write(&n_seq,   sizeof(n_seq));
 
-    for (uint32_t il = 0; il < n_layer; ++il) {
+    for (uint32_t il = 0; il < n_layer_all; ++il) {
         const auto & layer = dsv4_cache_layers[il];
 
         const uint32_t n_comp = layer.n_comp;
@@ -621,7 +621,7 @@ void llama_memory_hybrid_iswa::dsv4_state_write(llama_io_write_i & io, llama_seq
     for (llama_seq_id seq : seq_ids) {
         io.write(&seq, sizeof(seq));
 
-        for (uint32_t il = 0; il < n_layer; ++il) {
+        for (uint32_t il = 0; il < n_layer_all; ++il) {
             const auto & layer = dsv4_cache_layers[il];
             const uint32_t n_rows = dsv4_n_state_rows(il, seq);
 
@@ -653,12 +653,12 @@ void llama_memory_hybrid_iswa::dsv4_state_read(llama_io_read_i & io, llama_seq_i
 
     uint32_t magic;
     uint32_t version;
-    uint32_t n_layer;
+    uint32_t n_layer_all;
     uint32_t n_seq;
 
     io.read(&magic,   sizeof(magic));
     io.read(&version, sizeof(version));
-    io.read(&n_layer, sizeof(n_layer));
+    io.read(&n_layer_all, sizeof(n_layer_all));
     io.read(&n_seq,   sizeof(n_seq));
 
     if (magic != DSV4_COMPRESSED_KV_STATE_MAGIC) {
@@ -667,7 +667,7 @@ void llama_memory_hybrid_iswa::dsv4_state_read(llama_io_read_i & io, llama_seq_i
     if (version != DSV4_COMPRESSED_KV_STATE_VERSION) {
         throw std::runtime_error("failed to restore DeepSeek V4 compressed KV cache: bad version");
     }
-    if (n_layer != hparams.n_layer || n_layer != dsv4_cache_layers.size()) {
+    if (n_layer_all != hparams.n_layer_all || n_layer_all != dsv4_cache_layers.size()) {
         throw std::runtime_error("failed to restore DeepSeek V4 compressed KV cache: mismatched layer count");
     }
 
@@ -681,8 +681,8 @@ void llama_memory_hybrid_iswa::dsv4_state_read(llama_io_read_i & io, llama_seq_i
         uint64_t index_row_size = 0;
     };
 
-    std::vector<layer_meta> meta(n_layer);
-    for (uint32_t il = 0; il < n_layer; ++il) {
+    std::vector<layer_meta> meta(n_layer_all);
+    for (uint32_t il = 0; il < n_layer_all; ++il) {
         auto & m = meta[il];
         const auto & layer = dsv4_cache_layers[il];
 
@@ -743,7 +743,7 @@ void llama_memory_hybrid_iswa::dsv4_state_read(llama_io_read_i & io, llama_seq_i
             throw std::runtime_error("failed to restore DeepSeek V4 compressed KV cache: invalid sequence id");
         }
 
-        for (uint32_t il = 0; il < n_layer; ++il) {
+        for (uint32_t il = 0; il < n_layer_all; ++il) {
             const auto & layer = dsv4_cache_layers[il];
 
             if (layer.attn_k != nullptr) {

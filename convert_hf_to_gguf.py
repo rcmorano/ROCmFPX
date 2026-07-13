@@ -1058,7 +1058,7 @@ class TextModel(ModelBase):
             # move the text_config to the root level
             self.hparams = {**self.hparams, **self.hparams["text_config"]}
 
-        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
+        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer_all", "num_layers"])
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
         self.rope_parameters = self.hparams.get("rope_parameters", self.hparams.get("rope_scaling")) or {}
@@ -2173,7 +2173,7 @@ class MmprojModel(ModelBase):
     preprocessor_config: dict[str, Any]
     global_config: dict[str, Any]
 
-    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth", "layers", "encoder_layers", "vt_num_hidden_layers"]
+    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer_all", "num_layers", "depth", "layers", "encoder_layers", "vt_num_hidden_layers"]
 
     has_vision_encoder: bool = True # by default
     has_audio_encoder: bool = False
@@ -4675,10 +4675,10 @@ class WavTokenizerDecModel(TextModel):
         self.gguf_writer.add_group_norm_groups  (self.hparams["group_norm_groups"])
 
         self.gguf_writer.add_posnet_embedding_length(self.hparams["posnet"]["n_embd"])
-        self.gguf_writer.add_posnet_block_count     (self.hparams["posnet"]["n_layer"])
+        self.gguf_writer.add_posnet_block_count     (self.hparams["posnet"]["n_layer_all"])
 
         self.gguf_writer.add_convnext_embedding_length(self.hparams["convnext"]["n_embd"])
-        self.gguf_writer.add_convnext_block_count     (self.hparams["convnext"]["n_layer"])
+        self.gguf_writer.add_convnext_block_count     (self.hparams["convnext"]["n_layer_all"])
 
         self.gguf_writer.add_causal_attention(False)
 
@@ -5642,10 +5642,10 @@ class _Qwen35MtpMixin:
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # Remap MTP block tensors to llama.cpp's layer-indexed nextn naming.
         if name.startswith("mtp."):
-            n_layer = self.hparams["num_hidden_layers"]
+            n_layer_all = self.hparams["num_hidden_layers"]
             if name.find("layers.") != -1:
                 assert bid is not None
-                name = name.replace(f"mtp.layers.{bid}", f"model.layers.{bid + n_layer}")
+                name = name.replace(f"mtp.layers.{bid}", f"model.layers.{bid + n_layer_all}")
             else:
                 remapper = {
                     "mtp.fc":                    "model.layers.{bid}.eh_proj",
@@ -5656,7 +5656,7 @@ class _Qwen35MtpMixin:
                 stem   = Path(name).stem
                 suffix = Path(name).suffix
                 tmpl   = remapper[stem] + suffix
-                for b in range(n_layer, self.block_count):
+                for b in range(n_layer_all, self.block_count):
                     yield from super().modify_tensors(data_torch, tmpl.format(bid=b), b)  # ty: ignore[unresolved-attribute]
                 return
 
@@ -9438,7 +9438,7 @@ class DeepseekV2Model(TextModel):
         hparams = self.hparams
 
         # first_k_dense_replace: number of leading layers using dense FFN instead of MoE
-        # For non-MoE models (like Youtu), set to n_layer to use dense FFN for all layers
+        # For non-MoE models (like Youtu), set to n_layer_all to use dense FFN for all layers
         # For MoE models (like DeepSeek-V2), this is the number of leading non-MoE layers
         has_moe = hparams.get("n_routed_experts") is not None
         first_k_dense_replace = hparams.get("first_k_dense_replace")

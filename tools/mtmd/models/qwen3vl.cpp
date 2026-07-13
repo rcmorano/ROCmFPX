@@ -67,7 +67,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
     const int merge_factor = hparams.n_merge > 0 ? hparams.n_merge * hparams.n_merge : 4; // default 2x2=4 for qwen3vl
 
     // loop over layers
-    for (int il = 0; il < n_layer; il++) {
+    for (int il = 0; il < n_layer_all; il++) {
         auto & layer = model.layers[il];
 
         ggml_tensor * cur = inpL; // inpL = residual, cur = hidden_states
@@ -162,7 +162,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
 
     // post-layernorm
     if (model.post_ln_w) {
-        inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer);
+        inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer_all);
     }
 
     // multimodal projection

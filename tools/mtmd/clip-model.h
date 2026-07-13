@@ -43,7 +43,7 @@ struct clip_hparams {
     int32_t projection_dim = 0;
     int32_t n_head = 0;
     int32_t n_head_kv = 0;
-    int32_t n_layer = 0;
+    int32_t n_layer_all = 0;
     // idefics3
     int32_t n_merge = 0; // number of patch merges **per-side**
 

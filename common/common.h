@@ -1005,7 +1005,7 @@ float common_embd_similarity_cos(const float * embd1, const float * embd2, int n
 struct common_control_vector_data {
     int n_embd;
 
-    // stores data for layers [1, n_layer] where n_layer = data.size() / n_embd
+    // stores data for layers [1, n_layer_all] where n_layer_all = data.size() / n_embd
     std::vector<float> data;
 };
 

@@ -21,12 +21,12 @@ void llama_model_glm4_moe::load_arch_hparams(llama_model_loader & ml) {
 
     // NextN/MTP parameters
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,        hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
 
     // TODO: when MTP is implemented, this should probably be updated if needed
-    hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
+    hparams.n_layer_kv_from_start = hparams.n_layer_all - hparams.nextn_predict_layers;
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 47: type = LLM_TYPE_106B_A12B; break; // GLM-4.5-Air (46 layers + 1 NextN layer)
         case 48: type = LLM_TYPE_102B_A12B; break; // Solar Open
         case 93: type = LLM_TYPE_355B_A32B; break; // GLM-4.5 (92 layers + 1 NextN layer)
@@ -54,9 +54,9 @@ void llama_model_glm4_moe::load_arch_tensors(llama_model_loader &) {
 
     // Load ALL tensors including NextN layer to satisfy total tensor count
     // but only PROCESS up to last layer (skipping final NextN layer) in forward pass
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         int flags = 0;
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             // skip all tensors in the NextN layers
             flags |= TENSOR_SKIP;
         }
@@ -116,7 +116,7 @@ void llama_model_glm4_moe::load_arch_tensors(llama_model_loader &) {
         }
 
         // NextN/MTP tensors (preserved but unused) - conditionally load for last nextn_predict_layers
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             layer.nextn.eh_proj          = create_tensor(tn(LLM_TENSOR_NEXTN_EH_PROJ, "weight", i), { 2 * n_embd, n_embd }, flags);
             layer.nextn.enorm            = create_tensor(tn(LLM_TENSOR_NEXTN_ENORM, "weight", i), { n_embd }, flags);
             layer.nextn.hnorm            = create_tensor(tn(LLM_TENSOR_NEXTN_HNORM, "weight", i), { n_embd }, flags);
@@ -161,7 +161,7 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
 
     // Only process up to last layer (skip final NextN layer)
     // Final layer tensors are loaded but not processed in forward pass
-    const int n_transformer_layers = n_layer - hparams.nextn_predict_layers;
+    const int n_transformer_layers = n_layer_all - hparams.nextn_predict_layers;
     for (int il = 0; il < n_transformer_layers; ++il) {
         ggml_tensor * inpSA = inpL;
 

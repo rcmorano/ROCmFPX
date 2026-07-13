@@ -3,7 +3,7 @@
 void llama_model_openelm::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
     case 16: type = LLM_TYPE_270M; break;
     case 20: type = LLM_TYPE_450M; break;
     case 28: type = LLM_TYPE_1B; break;
@@ -22,7 +22,7 @@ void llama_model_openelm::load_arch_tensors(llama_model_loader &) {
     // init output from the input tok embed
     output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         const int64_t n_head      =   hparams.n_head(i);
         const int64_t n_head_qkv  = 2*hparams.n_head_kv(i) + n_head;
         const int64_t n_ff        =   hparams.n_ff(i);
@@ -63,7 +63,7 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const int64_t n_head    = hparams.n_head(il);
         const int64_t n_head_kv = hparams.n_head_kv(il);
         const int64_t n_head_qkv = 2*n_head_kv + n_head;
@@ -123,7 +123,7 @@ llama_model_openelm::graph::graph(const llama_model & model, const llm_graph_par
                     model.layers[il].wo, NULL, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             residual = ggml_get_rows(ctx0, residual, inp_out_ids);
             cur      = ggml_get_rows(ctx0, cur,      inp_out_ids);
         }

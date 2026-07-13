@@ -30,7 +30,7 @@ void llama_model_afmoe::load_arch_hparams(llama_model_loader & ml) {
         hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID;
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 56: type = LLM_TYPE_6B; break;
         case 32: type = LLM_TYPE_26B; break;
         default: type = LLM_TYPE_UNKNOWN;
@@ -54,7 +54,7 @@ void llama_model_afmoe::load_arch_tensors(llama_model_loader &) {
 
     const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl;
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         // dual attention normalization
@@ -127,7 +127,7 @@ llama_model_afmoe::graph::graph(const llama_model & model, const llm_graph_param
 
     const float kq_scale = 1.0f/sqrtf(float(n_embd_head));
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const float freq_base_l  = model.get_rope_freq_base (cparams, il);
         const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
 
@@ -196,7 +196,7 @@ llama_model_afmoe::graph::graph(const llama_model & model, const llm_graph_param
                 LLM_NORM_RMS, il);
         cb(cur, "attn_post_norm", il);
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

@@ -86,7 +86,7 @@ ggml_cgraph * clip_graph_youtuvl::build() {
     }
 
     // loop over layers
-    for (int il = 0; il < n_layer; il++) {
+    for (int il = 0; il < n_layer_all; il++) {
         const auto & layer = model.layers[il];
         const bool full_attn = use_window_attn ? hparams.wa_layer_indexes.count(il) > 0 : true;
 
@@ -155,7 +155,7 @@ ggml_cgraph * clip_graph_youtuvl::build() {
 
     // post-layernorm (part of Siglip2VisionTransformer, applied after encoder)
     if (model.post_ln_w) {
-        embeddings = build_norm(embeddings, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer);
+        embeddings = build_norm(embeddings, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer_all);
     }
 
     // Now apply merger (VLPatchMerger):

@@ -175,7 +175,7 @@ public:
 
 void llama_model_diffusion_gemma::load_arch_hparams(llama_model_loader & ml) {
     hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
-    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer_all);
 
     // bidirectional decoder; the forward fills its own region-aware mask
     hparams.causal_attn = false;
@@ -196,7 +196,7 @@ void llama_model_diffusion_gemma::load_arch_hparams(llama_model_loader & ml) {
         throw std::runtime_error("DiffusionGemma requires a positive diffusion.canvas_length");
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 30: type = LLM_TYPE_26B_A4B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -232,7 +232,7 @@ void llama_model_diffusion_gemma::load_arch_tensors(llama_model_loader &) {
 
     int rope_freqs_flag = 0;
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
         const int64_t n_head      = hparams.n_head(i);
         const int64_t n_embd_head = hparams.n_embd_head_k(i);
@@ -416,7 +416,7 @@ llama_model_diffusion_gemma::graph::graph(const llama_model & model, const llm_g
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const int64_t n_embd_head = hparams.n_embd_head_k(il);
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_v(il));
         const int64_t n_head_kv = hparams.n_head_kv(il);
@@ -612,19 +612,19 @@ static void dg_ensure_pkv_store(const llama_model_diffusion_gemma & m, int64_t P
     m.pkv_k.clear();
     m.pkv_v.clear();
 
-    const int     n_layer = (int) m.hparams.n_layer;
+    const int     n_layer_all = (int) m.hparams.n_layer_all;
     const int64_t cap     = P;
 
     ggml_init_params ip = {
-        /*.mem_size   =*/ ggml_tensor_overhead() * (size_t) (2 * n_layer + 4),
+        /*.mem_size   =*/ ggml_tensor_overhead() * (size_t) (2 * n_layer_all + 4),
         /*.mem_buffer =*/ nullptr,
         /*.no_alloc   =*/ true,
     };
     m.pkv_ctx = ggml_init(ip);
     GGML_ASSERT(m.pkv_ctx != nullptr);
-    m.pkv_k.resize(n_layer);
-    m.pkv_v.resize(n_layer);
-    for (int il = 0; il < n_layer; ++il) {
+    m.pkv_k.resize(n_layer_all);
+    m.pkv_v.resize(n_layer_all);
+    for (int il = 0; il < n_layer_all; ++il) {
         const int64_t hd  = m.hparams.n_embd_head_k(il);
         const int64_t nkv = m.hparams.n_head_kv(il);
         m.pkv_k[il] = ggml_new_tensor_3d(m.pkv_ctx, GGML_TYPE_F32, hd, nkv, cap);

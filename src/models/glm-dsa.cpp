@@ -34,12 +34,12 @@ void llama_model_glm_dsa::load_arch_hparams(llama_model_loader & ml) {
 
     // NextN/MTP parameters
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,        hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
 
     // TODO: when MTP is implemented, this should probably be updated if needed
-    hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
+    hparams.n_layer_kv_from_start = hparams.n_layer_all - hparams.nextn_predict_layers;
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 79: type = LLM_TYPE_744B_A40B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -76,9 +76,9 @@ void llama_model_glm_dsa::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         int flags = 0;
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             // skip all tensors in the NextN layers
             // TODO @ngxson : TENSOR_NOT_REQUIRED was a hack, need to remove it later
             flags |= TENSOR_SKIP | TENSOR_NOT_REQUIRED;
@@ -136,7 +136,7 @@ void llama_model_glm_dsa::load_arch_tensors(llama_model_loader &) {
         }
 
         // NextN/MTP tensors (preserved but unused) - conditionally load for last nextn_predict_layers
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             layer.nextn.eh_proj          = create_tensor(tn(LLM_TENSOR_NEXTN_EH_PROJ, "weight", i), { 2 * n_embd, n_embd }, flags);
             layer.nextn.enorm            = create_tensor(tn(LLM_TENSOR_NEXTN_ENORM, "weight", i), { n_embd }, flags);
             layer.nextn.hnorm            = create_tensor(tn(LLM_TENSOR_NEXTN_HNORM, "weight", i), { n_embd }, flags);

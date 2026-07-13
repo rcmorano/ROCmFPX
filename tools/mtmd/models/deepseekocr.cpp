@@ -96,7 +96,7 @@ ggml_cgraph * clip_graph_deepseekocr::build() {
     // Building SAM
     {
         const int n_embd  = hparams.sam_n_embd;
-        const int n_layer = hparams.sam_n_layer;
+        const int n_layer_all = hparams.sam_n_layer;
         const int n_heads = hparams.sam_n_head;
         const int d_heads = n_embd / n_heads;
         const int window  = hparams.attn_window_size;
@@ -133,7 +133,7 @@ ggml_cgraph * clip_graph_deepseekocr::build() {
         }
 
         // loop over layers
-        for (int il = 0; il < n_layer; il++) {
+        for (int il = 0; il < n_layer_all; il++) {
             auto &        layer    = model.sam_layers[il];
             ggml_tensor * shortcut = cur;
 
