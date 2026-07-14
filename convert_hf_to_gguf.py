@@ -11650,29 +11650,25 @@ class NemotronHPuzzleModel(NemotronHModel):
         if "n_layer_all" not in hparams:
             hparams["n_layer_all"] = len(block_configs) + len(mtp_block_configs)
         
-        # Pass modified hparams to parent initialization
-        kwargs["hparams"] = hparams
-        
-        super().__init__(dir_model, *args, **kwargs)
-
-        # Extract block_configs and mtp_block_configs from hparams (may be nested originally)
-        block_configs = self.hparams.get("block_configs", [])
-        mtp_block_configs = self.hparams.get("mtp_block_configs", [])
-        if not block_configs and "text_config" in self.hparams:
-            text_cfg = self.hparams["text_config"]
-            block_configs = text_cfg.get("block_configs", [])
-            mtp_block_configs = text_cfg.get("mtp_block_configs", [])
-
-        # Build combined layers_block_type from both lists
+        # Build combined layers_block_type from both lists BEFORE calling super().__init__()
+        # This ensures the pattern length matches block_count.
         layers_block_type = []
         for cfg in block_configs:
             layers_block_type.append(cfg.get("block_type", "default"))
         for cfg in mtp_block_configs:
             layers_block_type.append(cfg.get("block_type", "mtp"))
-
-        # Call GraniteHybridModel.__init__ instead of NemotronHModel.__init__
-        # Note: GraniteHybridModel is defined earlier in this file
-        GraniteHybridModel.__init__(self, *args, **kwargs)
+        
+        # Set the pattern in top-level hparams
+        hparams["layers_block_type"] = layers_block_type
+        
+        # If text_config exists, also set it there to survive the merge in TextModel.__init__
+        if "text_config" in hparams:
+            hparams["text_config"]["layers_block_type"] = layers_block_type
+        
+        # Pass modified hparams to parent initialization
+        kwargs["hparams"] = hparams
+        
+        super().__init__(dir_model, *args, **kwargs)
 
         # Set head_dim and d_inner
         self.head_dim = self.hparams.get("head_dim", 64)
