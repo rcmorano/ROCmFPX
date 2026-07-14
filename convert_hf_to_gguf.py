@@ -11706,40 +11706,31 @@ class NemotronHPuzzleModel(NemotronHModel):
         # Add nextn predict layers
         self.gguf_writer.add_nextn_predict_layers(len(self.mtp_block_configs))
 
-    def modify_tensors(self):
+    def modify_tensors(self, data_torch, name, bid):
         # Handle tensors starting with "mtp." specially
-        mtp_tensor_map = {}
-
-        for tensor_name, tensor in list(self.tensors.items()):
-            if tensor_name.startswith("mtp."):
-                # Map MTP tensors to their correct names
-                if tensor_name == "mtp.eh_proj":
-                    mtp_tensor_map["eh_proj"] = tensor
-                elif tensor_name == "mtp.enorm":
-                    mtp_tensor_map["enorm"] = tensor
-                elif tensor_name == "mtp.hnorm":
-                    mtp_tensor_map["hnorm"] = tensor
-                elif tensor_name == "mtp.final_layernorm":
-                    mtp_tensor_map["final_layernorm"] = tensor
+        if name.startswith("mtp."):
+            # Map MTP tensors to their correct names
+            if name == "mtp.eh_proj":
+                new_name = "eh_proj"
+            elif name == "mtp.enorm":
+                new_name = "enorm"
+            elif name == "mtp.hnorm":
+                new_name = "hnorm"
+            elif name == "mtp.final_layernorm":
+                new_name = "final_layernorm"
+            else:
+                # For other MTP tensors, rewrite names to use backbone.layers.{mtp_bid} pattern
+                parts = name.split(".")[1:]  # Skip "mtp"
+                if len(parts) >= 2 and parts[0].isdigit():
+                    mtp_bid = parts[0]
+                    remaining = ".".join(parts[1:])
+                    new_name = f"backbone.layers.{mtp_bid}.{remaining}"
                 else:
-                    # For other MTP tensors, rewrite names to use backbone.layers.{mtp_bid} pattern
-                    # Extract the block index and remaining name
-                    parts = tensor_name.split(".")[1:]  # Skip "mtp"
-                    if len(parts) >= 2 and parts[0].isdigit():
-                        mtp_bid = parts[0]
-                        remaining = ".".join(parts[1:])
-                        new_name = f"backbone.layers.{mtp_bid}.{remaining}"
-                        self.tensors[new_name] = tensor
-                    else:
-                        # Keep original name if pattern doesn't match
-                        new_name = "backbone." + tensor_name
-                        self.tensors[new_name] = tensor
+                    new_name = "backbone." + name
 
-                # Remove the original mtp. tensor
-                del self.tensors[tensor_name]
-
-        # Call super().modify_tensors() for the remaining tensors
-        super().modify_tensors()
+            yield from super().modify_tensors(data_torch, new_name, bid)
+        else:
+            yield from super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("LlamaBidirectionalModel")
