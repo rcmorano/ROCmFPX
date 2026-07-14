@@ -14426,6 +14426,10 @@ def split_str_to_n_bytes(split_str: str) -> int:
 
 
 def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> str:
+    # DEBUG
+    import sys
+    print(f"DEBUG get_model_architecture called with keys: {list(hparams.keys())}", file=sys.stderr)
+    
     # TODO @ngxson : this won't work correctly if the model has both audio & vision encoders
     # maybe we should fallback to text model's arch in that case, since not many models have both
     text_config = hparams.get("text_config", {})
@@ -14455,7 +14459,9 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
         check_configs = [hparams, text_config, vision_config]
         for cfg in check_configs:
             if "block_configs" in cfg or "mtp_block_configs" in cfg:
+                print(f"DEBUG: Found block_configs in config!", file=sys.stderr)
                 return "NemotronHPuzzleForCausalLM"
+        print(f"DEBUG: block_configs NOT found. hparams keys: {list(hparams.keys())}", file=sys.stderr)
         raise ValueError("Failed to detect model architecture")
     
     return arch
