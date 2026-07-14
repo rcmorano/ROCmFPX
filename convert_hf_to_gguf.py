@@ -11631,24 +11631,36 @@ class NemotronHPuzzleModel(NemotronHModel):
     model_arch = gguf.MODEL_ARCH.NEMOTRON_H_MOE
     is_moe = True
 
-    def __init__(self, *args, **kwargs):
-        # Extract hparams and ensure block_count is available for parent init
-        hparams = kwargs.pop("hparams", None) or {}
+    def __init__(self, dir_model: Path, *args, **kwargs):
+        # Load hparams if not provided
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(dir_model, self.is_mistral_format)
         
-        # Derive n_layer_all from block_configs and mtp_block_configs
+        # Check for block_configs in top-level or text_config (nested)
+        block_configs = hparams.get("block_configs", [])
+        mtp_block_configs = hparams.get("mtp_block_configs", [])
+        if not block_configs and "text_config" in hparams:
+            text_cfg = hparams["text_config"]
+            block_configs = text_cfg.get("block_configs", [])
+            mtp_block_configs = text_cfg.get("mtp_block_configs", [])
+        
+        # Derive n_layer_all for parent initialization
         if "n_layer_all" not in hparams:
-            block_configs = hparams.get("block_configs", [])
-            mtp_block_configs = hparams.get("mtp_block_configs", [])
             hparams["n_layer_all"] = len(block_configs) + len(mtp_block_configs)
         
         # Pass modified hparams to parent initialization
         kwargs["hparams"] = hparams
         
-        super().__init__(*args, **kwargs)
+        super().__init__(dir_model, *args, **kwargs)
 
-        # Extract block_configs and mtp_block_configs from hparams
+        # Extract block_configs and mtp_block_configs from hparams (may be nested originally)
         block_configs = self.hparams.get("block_configs", [])
         mtp_block_configs = self.hparams.get("mtp_block_configs", [])
+        if not block_configs and "text_config" in self.hparams:
+            text_cfg = self.hparams["text_config"]
+            block_configs = text_cfg.get("block_configs", [])
+            mtp_block_configs = text_cfg.get("mtp_block_configs", [])
 
         # Build combined layers_block_type from both lists
         layers_block_type = []
@@ -14454,6 +14466,11 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
         arch = vision_config["architectures"][0]
     
     if arch is None:
+        # DEBUG
+        print(f"DEBUG: arch is None. Checking for block_configs...", file=sys.stderr)
+        print(f"DEBUG: hparams has text_config: {'text_config' in hparams}", file=sys.stderr)
+        print(f"DEBUG: text_config keys: {list(text_config.keys()) if text_config else 'N/A'}", file=sys.stderr)
+        
         # Fallback: detect NemotronHPuzzleForCausalLM by presence of block_configs anywhere in hparams
         # Check top-level, text_config, and vision_config
         check_configs = [hparams, text_config, vision_config]
