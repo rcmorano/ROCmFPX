@@ -11399,7 +11399,7 @@ class NemotronHModel(GraniteHybridModel):
         hparams = kwargs.pop("hparams", None)
         if hparams is None:
             hparams = ModelBase.load_hparams(args[0], self.is_mistral_format)
-        
+
         has_moe_params = (
             "num_experts_per_tok" in hparams
             or (isinstance(hparams.get("llm_config"), dict) and "num_experts_per_tok" in hparams["llm_config"])
@@ -11411,6 +11411,7 @@ class NemotronHModel(GraniteHybridModel):
         # Pass the same hparams to parent initialization
         kwargs["hparams"] = hparams
         super().__init__(*args, **kwargs)
+
 
         # Save the top-level head_dim for later
         self.head_dim = self.hparams.get("head_dim", self.hparams.get("attention_head_dim"))
@@ -14466,19 +14467,12 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
         arch = vision_config["architectures"][0]
     
     if arch is None:
-        # DEBUG
-        print(f"DEBUG: arch is None. Checking for block_configs...", file=sys.stderr)
-        print(f"DEBUG: hparams has text_config: {'text_config' in hparams}", file=sys.stderr)
-        print(f"DEBUG: text_config keys: {list(text_config.keys()) if text_config else 'N/A'}", file=sys.stderr)
-        
         # Fallback: detect NemotronHPuzzleForCausalLM by presence of block_configs anywhere in hparams
         # Check top-level, text_config, and vision_config
         check_configs = [hparams, text_config, vision_config]
         for cfg in check_configs:
-            if "block_configs" in cfg or "mtp_block_configs" in cfg:
-                print(f"DEBUG: Found block_configs in config!", file=sys.stderr)
+            if cfg and ("block_configs" in cfg or "mtp_block_configs" in cfg):
                 return "NemotronHPuzzleForCausalLM"
-        print(f"DEBUG: block_configs NOT found. hparams keys: {list(hparams.keys())}", file=sys.stderr)
         raise ValueError("Failed to detect model architecture")
     
     return arch
