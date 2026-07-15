@@ -11603,7 +11603,7 @@ class NemotronHModel(GraniteHybridModel):
                         datas: list[Tensor] = []
 
                         for xid in range(n_experts):
-                            ename = f"backbone.layers.{bid}.mixer.experts.{xid}.{w_name}.weight"
+                            ename = f"model.layers.{bid}.mixer.experts.{xid}.{w_name}.weight"
                             datas.append(self._experts[bid][ename])
                             del self._experts[bid][ename]
 

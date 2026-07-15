@@ -474,6 +474,7 @@ class TensorNameMap:
             "model.layers.{bid}.mlp.e_score_correction",                    # exaone-moe
             "model.layers.{bid}.block_sparse_moe.gate.e_score_correction",  # kimi
             "model.layers.{bid}.moe.router_bias",                           # step3.5 expert selection bias
+            "model.layers.{bid}.mixer.gate.e_score_correction.bias",        # nemotron-h (NemotronHPuzzle)
         ),
 
         # Feed-forward up
@@ -528,6 +529,7 @@ class TensorNameMap:
             "encoder.layers.{bid}.mlp.experts.mlp.w1",              # nomic-bert-moe
             "model.layers.{bid}.block_sparse_moe.experts.up", # smallthinker
             "model.layers.{bid}.moe.up_proj",                       # step3.5
+            "model.layers.{bid}.mlp.experts.{xid}.up_proj.weight",  # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.FFN_UP_SHEXP: (
@@ -658,6 +660,7 @@ class TensorNameMap:
             "model.layers.{bid}.block_sparse_moe.experts.down",     # smallthinker
             "model.layers.{bid}.moe.down_proj",                     # step3.5
             "model.layers.{bid}.experts.down_proj",                 # gemma4
+            "model.layers.{bid}.mlp.experts.{xid}.down_proj.weight", # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.FFN_DOWN_SHEXP: (
@@ -804,6 +807,7 @@ class TensorNameMap:
             "model.layers.{bid}.mamba.conv1d",         # jamba falcon-h1 granite-hybrid
             "model.layers.layers.{bid}.mixer.conv1d",  # plamo2
             "model.layers.{bid}.linear_attn.conv1d",   # qwen3next
+            "model.layers.{bid}.mixer.conv1d.weight",  # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_X: (
@@ -821,6 +825,7 @@ class TensorNameMap:
             "model.layers.{bid}.linear_attn.dt_proj",   # qwen3next
             "backbone.layers.{bid}.mixer.dt",           # nemotron-h-moe
             "model.layers.{bid}.self_attn.dt_proj",     # kimi
+            "model.layers.{bid}.mixer.dt.bias",         # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_DT_NORM: (
@@ -835,6 +840,7 @@ class TensorNameMap:
             "model.layers.layers.{bid}.mixer.A_log",  # plamo2
             "model.layers.{bid}.linear_attn.A_log",   # qwen3next
             "model.layers.{bid}.self_attn.A_log",     # kimi
+            "model.layers.{bid}.mixer.A_log",         # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_B_NORM: (
@@ -854,6 +860,7 @@ class TensorNameMap:
             "backbone.layers.{bid}.mixer.D",      # mamba
             "model.layers.{bid}.mamba.D",         # jamba falcon-h1 granite-hybrid
             "model.layers.layers.{bid}.mixer.D",  # plamo2
+            "model.layers.{bid}.mixer.D",         # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_NORM: (
@@ -861,6 +868,7 @@ class TensorNameMap:
             "model.layers.{bid}.linear_attn.norm",  # qwen3next
             "backbone.layers.{bid}.mixer.norm",     # mamba2
             "model.layers.{bid}.self_attn.o_norm",  # kimi
+            "model.layers.{bid}.mixer.norm.weight", # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_OUT: (
