@@ -11813,18 +11813,22 @@ class NemotronHPuzzleModel(NemotronHModel):
         return super().filter_tensors(item)
 
     def set_gguf_parameters(self):
-        super().set_gguf_parameters()
-
-        # Build combined all_block_configs list
+        # Build combined all_block_configs list BEFORE calling parent
         all_block_configs = []
         if "block_configs" in self.hparams:
             all_block_configs.extend(self.hparams["block_configs"])
         if "mtp_block_configs" in self.hparams:
             all_block_configs.extend(self.hparams["mtp_block_configs"])
 
+        # Update block_count to include MTP layers BEFORE parent writes arrays.
+        # This ensures super().set_gguf_parameters() uses the correct total count.
+        self.block_count = len(all_block_configs)
+
+        super().set_gguf_parameters()
+
         # Extract ffn_lengths and experts_used from the combined configs
         ffn_lengths = [cfg.get("ffn_length", 0) for cfg in all_block_configs]
-        experts_used = [cfg.get("experts_used", 0) for cfg in all_block_configs]
+        experts_used = [cfg.get("num_experts_per_tok", 0) for cfg in all_block_configs]
 
         # Add expert parameters
         # Add expert weights (if any)
@@ -11843,6 +11847,12 @@ class NemotronHPuzzleModel(NemotronHModel):
         # Write per-layer expert_used_count array (num_experts_per_tok from block configs)
         experts_used = [cfg.get("num_experts_per_tok", 0) for cfg in all_block_configs]
         self.gguf_writer.add_expert_used_count(experts_used)
+
+        # Re-write feed_forward_length and expert_feed_forward_length arrays to match the new block count.
+        # They were already written by super().set_gguf_parameters() with old block_count.
+        # We overwrite them with correct per-layer values (trunk + MTP).
+        self.gguf_writer.add_feed_forward_length(ffn_lengths)
+        self.gguf_writer.add_expert_feed_forward_length(ffn_lengths)
 
     def modify_tensors(self, data_torch, name, bid):
         # Handle tensors starting with "mtp." specially
