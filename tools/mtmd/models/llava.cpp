@@ -9,10 +9,10 @@ ggml_cgraph * clip_graph_llava::build() {
     GGML_ASSERT(n_patches_x == n_patches_y && "only square images supported");
 
     // Calculate the deepest feature layer based on hparams and projector type
-    int max_feature_layer = n_layer;
+    int max_feature_layer = n_layer_all;
     {
         // Get the index of the second to last layer; this is the default for models that have a llava projector
-        int il_last = hparams.n_layer - 1;
+        int il_last = hparams.n_layer_all - 1;
         int deepest_feature_layer = -1;
 
         if (proj_type == PROJECTOR_TYPE_MINICPMV || proj_type == PROJECTOR_TYPE_GLM_EDGE) {

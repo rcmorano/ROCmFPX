@@ -14,18 +14,18 @@ void llama_model_kimi_linear::load_arch_hparams(llama_model_loader & ml) {
 
     // Mark KDA layers as recurrent using n_head_kv pattern (like Jamba)
     // Set n_head_kv = 0 for KDA layers (recurrent), n_head_kv = n_head for MLA layers (attention)
-    for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+    for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
         hparams.recurrent_layer_arr[i] = hparams.n_head_kv(i) == 0;  // KDA layers are recurrent
     }
 
     // MoE parameters - Kimi uses moe_intermediate_size = 1024
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared);
     ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 27: type = LLM_TYPE_48B_A3B; break; // Kimi-Linear-48B-A3B
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -40,7 +40,7 @@ void llama_model_kimi_linear::load_arch_tensors(llama_model_loader &) {
     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, 0);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -137,7 +137,7 @@ void llama_model_kimi_linear::load_arch_tensors(llama_model_loader &) {
         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
 
         // MoE intermediate size (different from dense FFN)
-        const int64_t n_ff_exp = hparams.n_ff_exp;
+        const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl;
 
         // Kimi uses n_layer_dense_lead to determine which layers use dense FFN vs MoE
         // first_k_dense_replace = 1 means layer 0 uses dense FFN, layers 1+ use MoE
@@ -147,16 +147,16 @@ void llama_model_kimi_linear::load_arch_tensors(llama_model_loader &) {
             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {n_ff, n_embd}, 0);
             layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd, n_ff}, 0);
         } else {
-            // MoE layer - use n_ff_exp (1024) instead of n_ff (9216)
+            // MoE layer - use n_ff_exp_impl (1024) instead of n_ff (9216)
             layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
-            layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
-            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp, n_embd, n_expert}, 0);
-            layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
+            layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp_impl, n_expert}, 0);
+            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl, n_embd, n_expert}, 0);
+            layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp_impl, n_expert}, 0);
 
             // Shared experts use moe_intermediate_size * num_shared_experts
             // Kimi: shared_expert_intermediate_size = 1024 * 1 = 1024
             // Tensors are 2D: [n_embd, n_ff_shexp] or [n_ff_shexp, n_embd]
-            const int64_t n_ff_shexp_actual = n_ff_exp * (hparams.n_expert_shared > 0 ? hparams.n_expert_shared : 1);
+            const int64_t n_ff_shexp_actual = n_ff_exp_impl * (hparams.n_expert_shared > 0 ? hparams.n_expert_shared : 1);
             layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, n_ff_shexp_actual}, TENSOR_NOT_REQUIRED);
             layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {n_ff_shexp_actual, n_embd}, TENSOR_NOT_REQUIRED);
             layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_shexp_actual}, TENSOR_NOT_REQUIRED);
@@ -275,7 +275,7 @@ llama_model_kimi_linear::graph::graph(const llama_model & model, const llm_graph
     // Attention scale for MLA
     const float kq_scale_mla = 1.0f / sqrtf((float)n_embd_head_k_mla);
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const auto & layer = model.layers[il];
         ggml_tensor * inpSA = inpL;
 
@@ -473,7 +473,7 @@ llama_model_kimi_linear::graph::graph(const llama_model & model, const llm_graph
         }
 
         // On last layer, select only the output tokens
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur,   inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
@@ -504,7 +504,7 @@ llama_model_kimi_linear::graph::graph(const llama_model & model, const llm_graph
                 layer.ffn_down_exps,
                 layer.ffn_exp_probs_b,
                 hparams.n_expert,
-                hparams.n_expert_used,
+                hparams.n_expert_used_impl,
                 LLM_FFN_SILU, true,
                 hparams.expert_weights_scale,
                 (llama_expert_gating_func_type) hparams.expert_gating_func,

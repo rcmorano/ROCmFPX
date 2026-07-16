@@ -7162,7 +7162,7 @@ struct llama_hparams {
     uint32_t n_embd;
     uint32_t n_head;
     uint32_t n_head_kv;
-    static constexpr uint32_t n_layer = 1;
+    static constexpr uint32_t n_layer_all = 1;
     uint32_t n_rot;
     uint32_t n_embd_head; // dimension of values (d_v)
     uint32_t n_ff;
@@ -7348,7 +7348,7 @@ struct test_llama : public test_llm {
         ggml_tensor * k_l = ggml_new_tensor_1d(ctx, GGML_TYPE_F16, 1638400);
         ggml_tensor * v_l = ggml_new_tensor_1d(ctx, GGML_TYPE_F16, 1638400);
 
-        for (uint32_t il = 0; il < hp.n_layer; ++il) {
+        for (uint32_t il = 0; il < hp.n_layer_all; ++il) {
             struct ggml_tensor * inpSA = inpL;
 
             // norm
@@ -7470,7 +7470,7 @@ struct test_falcon : public test_llm {
         ggml_tensor * k_l = ggml_new_tensor_1d(ctx, GGML_TYPE_F16, 1638400);
         ggml_tensor * v_l = ggml_new_tensor_1d(ctx, GGML_TYPE_F16, 1638400);
 
-        for (uint32_t il = 0; il < hp.n_layer; ++il) {
+        for (uint32_t il = 0; il < hp.n_layer_all; ++il) {
             // norm
             ggml_tensor * attn_norm_w = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, hp.n_embd);
             ggml_tensor * attn_norm_b = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, hp.n_embd);

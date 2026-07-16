@@ -24,7 +24,7 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     GGML_ASSERT(hparams.n_moe_layer_step > 0 && "Ernie 4.5 MoE requires n_moe_layer_step > 0");
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * inpSA = inpL;
         // norm
         {
@@ -52,7 +52,7 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f / sqrtf(float(n_embd_head)), il);
             cb(cur, "attn_out", il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
@@ -84,7 +84,7 @@ llama_model_ernie4_5_moe::graph::graph(const llama_model & model, const llm_grap
                                         model.layers[il].ffn_gate_exps,
                                         model.layers[il].ffn_down_exps,
                                         model.layers[il].ffn_exp_probs_b,
-                                        n_expert, n_expert_used,
+                                        n_expert, n_expert_used_impl,
                                         LLM_FFN_SILU, true,
                                         hparams.expert_weights_scale,
                                         LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

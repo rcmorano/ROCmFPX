@@ -1,13 +1,13 @@
 #include "models.h"
 
 void llama_model_glm4_moe::load_arch_hparams(llama_model_loader & ml) {
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,     hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,     hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,    hparams.f_norm_rms_eps);
     ml.get_key_or_arr(LLM_KV_ROPE_DIMENSION_SECTIONS, hparams.rope_sections, 4, false);
 
     // MoE parameters
     ml.get_key(LLM_KV_EXPERT_COUNT,                hparams.n_expert);
-    ml.get_key(LLM_KV_EXPERT_USED_COUNT,           hparams.n_expert_used);
+    ml.get_key(LLM_KV_EXPERT_USED_COUNT,           hparams.n_expert_used_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,         hparams.n_expert_shared);
     ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,   hparams.n_layer_dense_lead, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,        hparams.expert_weights_scale, false);
@@ -21,12 +21,12 @@ void llama_model_glm4_moe::load_arch_hparams(llama_model_loader & ml) {
 
     // NextN/MTP parameters
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,        hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
 
     // TODO: when MTP is implemented, this should probably be updated if needed
-    hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
+    hparams.n_layer_kv_from_start = hparams.n_layer_all - hparams.nextn_predict_layers;
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 47: type = LLM_TYPE_106B_A12B; break; // GLM-4.5-Air (46 layers + 1 NextN layer)
         case 48: type = LLM_TYPE_102B_A12B; break; // Solar Open
         case 93: type = LLM_TYPE_355B_A32B; break; // GLM-4.5 (92 layers + 1 NextN layer)
@@ -40,7 +40,7 @@ void llama_model_glm4_moe::load_arch_tensors(llama_model_loader &) {
 
 
     GGML_ASSERT(hparams.n_expert > 0 && "n_expert must be > 0 for GLM4_MOE MoE layers");
-    GGML_ASSERT(hparams.n_expert_used > 0 && "n_expert_used must be > 0 for GLM4_MOE MoE layers");
+    GGML_ASSERT(hparams.n_expert_used_impl > 0 && "n_expert_used_impl must be > 0 for GLM4_MOE MoE layers");
 
     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, 0);
 
@@ -54,9 +54,9 @@ void llama_model_glm4_moe::load_arch_tensors(llama_model_loader &) {
 
     // Load ALL tensors including NextN layer to satisfy total tensor count
     // but only PROCESS up to last layer (skipping final NextN layer) in forward pass
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         int flags = 0;
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             // skip all tensors in the NextN layers
             flags |= TENSOR_SKIP;
         }
@@ -89,18 +89,18 @@ void llama_model_glm4_moe::load_arch_tensors(llama_model_loader &) {
             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), { n_expert }, flags);
 
             // MoE branch
-            const int64_t n_ff_exp = hparams.n_ff_exp ? hparams.n_ff_exp : n_ff / n_expert_used;
+            const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl ? hparams.n_ff_exp_impl : n_ff / n_expert_used_impl;
 
             layer.ffn_gate_exps = create_tensor(
-                tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), { n_embd, n_ff_exp, n_expert }, flags);
+                tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), { n_embd, n_ff_exp_impl, n_expert }, flags);
             layer.ffn_down_exps = create_tensor(
-                tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), { n_ff_exp, n_embd, n_expert }, flags);
+                tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), { n_ff_exp_impl, n_embd, n_expert }, flags);
             layer.ffn_up_exps = create_tensor(
-                tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i), { n_embd, n_ff_exp, n_expert }, flags);
+                tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i), { n_embd, n_ff_exp_impl, n_expert }, flags);
 
             // Shared expert
             if (n_expert_shared > 0) {
-                const int64_t n_ff_shexp = n_ff_exp * n_expert_shared;
+                const int64_t n_ff_shexp = n_ff_exp_impl * n_expert_shared;
                 layer.ffn_gate_shexp = create_tensor(
                     tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), { n_embd, n_ff_shexp }, flags);
                 layer.ffn_down_shexp = create_tensor(
@@ -116,7 +116,7 @@ void llama_model_glm4_moe::load_arch_tensors(llama_model_loader &) {
         }
 
         // NextN/MTP tensors (preserved but unused) - conditionally load for last nextn_predict_layers
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= n_layer_all - hparams.nextn_predict_layers) {
             layer.nextn.eh_proj          = create_tensor(tn(LLM_TENSOR_NEXTN_EH_PROJ, "weight", i), { 2 * n_embd, n_embd }, flags);
             layer.nextn.enorm            = create_tensor(tn(LLM_TENSOR_NEXTN_ENORM, "weight", i), { n_embd }, flags);
             layer.nextn.hnorm            = create_tensor(tn(LLM_TENSOR_NEXTN_HNORM, "weight", i), { n_embd }, flags);
@@ -161,7 +161,7 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
 
     // Only process up to last layer (skip final NextN layer)
     // Final layer tensors are loaded but not processed in forward pass
-    const int n_transformer_layers = n_layer - hparams.nextn_predict_layers;
+    const int n_transformer_layers = n_layer_all - hparams.nextn_predict_layers;
     for (int il = 0; il < n_transformer_layers; ++il) {
         ggml_tensor * inpSA = inpL;
 
@@ -240,7 +240,7 @@ llama_model_glm4_moe::graph::graph(const llama_model & model, const llm_graph_pa
                     model.layers[il].ffn_gate_exps,
                     model.layers[il].ffn_down_exps,
                     model.layers[il].ffn_exp_probs_b,
-                    n_expert, n_expert_used,
+                    n_expert, n_expert_used_impl,
                     LLM_FFN_SILU, hparams.expert_weights_norm,
                     hparams.expert_weights_scale,
                     (llama_expert_gating_func_type) hparams.expert_gating_func,

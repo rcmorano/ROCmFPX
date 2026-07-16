@@ -3,7 +3,7 @@
 void llama_model_bert::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS,    hparams.f_norm_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 3:
             type = LLM_TYPE_17M; break; // bge-micro
         case 6:
@@ -42,7 +42,7 @@ void llama_model_bert::load_arch_tensors(llama_model_loader &) {
     tok_norm   = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "weight", 0), {n_embd}, 0);
     tok_norm_b = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "bias",   0), {n_embd}, 0);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         create_tensor_qkv(layer, i, n_embd, n_embd, n_embd_gqa, n_embd_gqa, 0);
@@ -111,7 +111,7 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * cur = inpL;
 
         {
@@ -154,7 +154,7 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
             cb(cur, "kqv_out", il);
         }
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur  = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }
@@ -182,7 +182,7 @@ llama_model_bert::graph::graph(const llama_model & model, const llm_graph_params
                     nullptr,
                     model.layers[il].ffn_down_exps,
                     nullptr,
-                    hparams.n_expert, hparams.n_expert_used,
+                    hparams.n_expert, hparams.n_expert_used_impl,
                     LLM_FFN_GELU, false,
                     hparams.expert_weights_scale,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

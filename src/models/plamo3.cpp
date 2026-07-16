@@ -13,7 +13,7 @@ void llama_model_plamo3::load_arch_hparams(llama_model_loader & ml) {
         hparams.swa_type = LLAMA_SWA_TYPE_NONE;
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 24: type = LLM_TYPE_2B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -33,7 +33,7 @@ void llama_model_plamo3::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         const int64_t num_attention_heads = hparams.n_head(i);
@@ -88,7 +88,7 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * residual = inpL;
 
         float freq_base_l  = 0.0f;
@@ -144,7 +144,7 @@ llama_model_plamo3::graph<iswa>::graph(const llama_model & model, const llm_grap
                 Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, attn_scale, il);
         cb(cur, "attn_out", il);
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur      = ggml_get_rows(ctx0, cur, inp_out_ids);
             residual = ggml_get_rows(ctx0, residual, inp_out_ids);
         }

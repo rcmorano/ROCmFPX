@@ -5,10 +5,10 @@
 void llama_model_lfm2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_SHORTCONV_L_CACHE,           hparams.n_shortconv_l_cache);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
-    for (uint32_t il = 0; il < hparams.n_layer; ++il) {
+    for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
         hparams.recurrent_layer_arr[il] = hparams.n_head_kv(il) == 0;
     }
-    hparams.n_layer_dense_lead = hparams.n_layer;
+    hparams.n_layer_dense_lead = hparams.n_layer_all;
     switch (hparams.n_ff()) {
         case  4608: type = LLM_TYPE_350M; break;
         case  6912: type = LLM_TYPE_700M; break;
@@ -18,7 +18,7 @@ void llama_model_lfm2::load_arch_hparams(llama_model_loader & ml) {
     }
     if (const auto is_swa = ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW, hparams.n_swa, false); is_swa && hparams.n_swa > 0) {
         hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
-        for (uint32_t il = 0; il < hparams.n_layer; ++il) {
+        for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
             hparams.swa_layers[il] = !hparams.recurrent_layer_arr[il];
         }
     }
@@ -36,7 +36,7 @@ void llama_model_lfm2::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         const bool is_moe_layer = i >= static_cast<int>(hparams.n_layer_dense_lead);
@@ -44,11 +44,11 @@ void llama_model_lfm2::load_arch_tensors(llama_model_loader &) {
         // ffn/moe is same for transformer and conv layers
         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
         if (is_moe_layer) {
-            GGML_ASSERT(n_expert && n_expert_used);
+            GGML_ASSERT(n_expert && n_expert_used_impl);
             layer.ffn_gate_inp    = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i),  {n_embd, n_expert}, 0);
-            layer.ffn_gate_exps   = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, hparams.n_ff_exp, n_expert}, 0);
-            layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {hparams.n_ff_exp,   n_embd, n_expert}, 0);
-            layer.ffn_up_exps     = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i),   {n_embd, hparams.n_ff_exp, n_expert}, 0);
+            layer.ffn_gate_exps   = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, hparams.n_ff_exp_impl, n_expert}, 0);
+            layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {hparams.n_ff_exp_impl,   n_embd, n_expert}, 0);
+            layer.ffn_up_exps     = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i),   {n_embd, hparams.n_ff_exp_impl, n_expert}, 0);
             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, 0);
         } else {  // dense
             layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
@@ -112,7 +112,7 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 model.layers[il].ffn_exp_probs_b,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, true,
                 hparams.expert_weights_scale,
                 static_cast<llama_expert_gating_func_type>(hparams.expert_gating_func),
@@ -228,7 +228,7 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
     ggml_tensor * inp_pos     = build_inp_pos();
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const bool is_moe_layer = il >= static_cast<int>(hparams.n_layer_dense_lead);
 
         auto * prev_cur = cur;
@@ -238,7 +238,7 @@ llama_model_lfm2::graph<iswa>::graph(const llama_model & model, const llm_graph_
         cur = hparams.is_recurrent(il) ? build_shortconv_block(cur, inp_hybrid->get_recr(), il) :
                                          build_attn_block(cur, inp_pos, inp_hybrid->get_attn(), il);
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur      = ggml_get_rows(ctx0, cur, inp_out_ids);
             prev_cur = ggml_get_rows(ctx0, prev_cur, inp_out_ids);
         }

@@ -3,7 +3,7 @@
 void llama_model_jina_bert_v3::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS,    hparams.f_norm_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 24:
             type = LLM_TYPE_558M; break;
         default: type = LLM_TYPE_UNKNOWN;
@@ -32,7 +32,7 @@ void llama_model_jina_bert_v3::load_arch_tensors(llama_model_loader &) {
     tok_norm   = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "weight", 0), {n_embd}, 0);
     tok_norm_b = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD_NORM, "bias",   0), {n_embd}, 0);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         create_tensor_qkv(layer, i, n_embd, n_embd, n_embd_gqa, n_embd_gqa, 0);

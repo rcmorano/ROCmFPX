@@ -9,7 +9,7 @@ void llama_model_step35::load_arch_hparams(llama_model_loader & ml) {
     hparams.n_rot_full = hparams.n_rot_full / 2;
 
     // MoE + SWA parameters
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
@@ -22,15 +22,15 @@ void llama_model_step35::load_arch_hparams(llama_model_loader & ml) {
 
     ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,  hparams.n_swa);
     ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,        hparams.rope_freq_base_train_swa, false);
-    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
-    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_EXP,   hparams.swiglu_clamp_exp,   hparams.n_layer, false);
-    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_SHEXP, hparams.swiglu_clamp_shexp, hparams.n_layer, false);
+    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer_all);
+    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_EXP,   hparams.swiglu_clamp_exp,   hparams.n_layer_all, false);
+    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_SHEXP, hparams.swiglu_clamp_shexp, hparams.n_layer_all, false);
 
     // NextN/MTP (Step3p5): extra decoder block appended beyond the main stack.
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
 
-    switch (hparams.n_layer - hparams.nextn_predict_layers) {
+    switch (hparams.n_layer_all - hparams.nextn_predict_layers) {
         case 45: type = LLM_TYPE_196B_A11B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -39,7 +39,7 @@ void llama_model_step35::load_arch_hparams(llama_model_loader & ml) {
 void llama_model_step35::load_arch_tensors(llama_model_loader & ml) {
     LLAMA_LOAD_LOCALS;
 
-    const uint32_t n_main = n_layer - hparams.nextn_predict_layers;
+    const uint32_t n_main = n_layer_all - hparams.nextn_predict_layers;
     const bool mtp_only   = (hparams.nextn_predict_layers > 0) &&
                             (ml.get_weight("blk.0.attn_norm.weight") == nullptr);
     // Trunk-only: the GGUF declares MTP layers in metadata but the actual MTP
@@ -60,7 +60,7 @@ void llama_model_step35::load_arch_tensors(llama_model_loader & ml) {
     // STEP35 supports per-layer partial RoPE dims; rope factors are stored as a single shared tensor
     // ("rope_freqs.weight") and ggml uses only the first (n_rot_l/2) entries per layer.
     uint32_t n_rot_max = 0;
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         n_rot_max = std::max(n_rot_max, hparams.n_rot(i));
     }
     if (n_rot_max == 0) {
@@ -100,11 +100,11 @@ void llama_model_step35::load_arch_tensors(llama_model_loader & ml) {
         layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, TENSOR_NOT_REQUIRED);
 
         // MoE routed experts + selection bias (router_bias)
-        const int64_t n_ff_exp = hparams.n_ff_exp;
+        const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl;
         layer.ffn_gate_inp      = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), {n_embd, n_expert}, TENSOR_NOT_REQUIRED);
-        layer.ffn_gate_exps     = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp,   n_expert}, TENSOR_NOT_REQUIRED);
-        layer.ffn_down_exps     = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, TENSOR_NOT_REQUIRED);
-        layer.ffn_up_exps       = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp,   n_expert}, TENSOR_NOT_REQUIRED);
+        layer.ffn_gate_exps     = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp_impl,   n_expert}, TENSOR_NOT_REQUIRED);
+        layer.ffn_down_exps     = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl,   n_embd, n_expert}, TENSOR_NOT_REQUIRED);
+        layer.ffn_up_exps       = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp_impl,   n_expert}, TENSOR_NOT_REQUIRED);
         layer.ffn_exp_probs_b   = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
 
         // shared expert MLP
@@ -151,11 +151,11 @@ void llama_model_step35::load_arch_tensors(llama_model_loader & ml) {
         layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, TENSOR_NOT_REQUIRED);
 
         // MoE routed experts + selection bias (router_bias)
-        const int64_t n_ff_exp = hparams.n_ff_exp;
+        const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl;
         layer.ffn_gate_inp      = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", i), {n_embd, n_expert}, TENSOR_NOT_REQUIRED);
-        layer.ffn_gate_exps     = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp,   n_expert}, TENSOR_NOT_REQUIRED);
-        layer.ffn_down_exps     = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, TENSOR_NOT_REQUIRED);
-        layer.ffn_up_exps       = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp,   n_expert}, TENSOR_NOT_REQUIRED);
+        layer.ffn_gate_exps     = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp_impl,   n_expert}, TENSOR_NOT_REQUIRED);
+        layer.ffn_down_exps     = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl,   n_embd, n_expert}, TENSOR_NOT_REQUIRED);
+        layer.ffn_up_exps       = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp_impl,   n_expert}, TENSOR_NOT_REQUIRED);
         layer.ffn_exp_probs_b   = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
 
         layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, hparams.n_ff_shexp}, TENSOR_NOT_REQUIRED);
@@ -175,9 +175,9 @@ void llama_model_step35::load_arch_tensors(llama_model_loader & ml) {
         load_block_trunk(i, trunk_flags);
     }
     // All declared MTP blocks are required when present — the multi-block draft
-    // chain runs every head (head k at offset k). In this fork hparams.n_layer
-    // includes the appended Step35 MTP blocks, so they occupy [n_main, n_layer).
-    for (int i = (int) n_main; i < n_layer; ++i) {
+    // chain runs every head (head k at offset k). In this fork hparams.n_layer_all
+    // includes the appended Step35 MTP blocks, so they occupy [n_main, n_layer_all).
+    for (int i = (int) n_main; i < n_layer_all; ++i) {
         load_block_mtp(i);
     }
 }
@@ -199,7 +199,7 @@ llama_model_step35::graph::graph(const llama_model & model, const llm_graph_para
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     // MTP/NextN layers are loaded as extra decoder blocks but not executed in the main pass.
-    const int n_transformer_layers = n_layer - (int) hparams.nextn_predict_layers;
+    const int n_transformer_layers = n_layer_all - (int) hparams.nextn_predict_layers;
     for (int il = 0; il < n_transformer_layers; ++il) {
         ggml_tensor * inpSA = inpL;
 
@@ -316,7 +316,7 @@ llama_model_step35::graph::graph(const llama_model & model, const llm_graph_para
                     model.layers[il].ffn_gate_exps,
                     model.layers[il].ffn_down_exps,
                     model.layers[il].ffn_exp_probs_b,
-                    n_expert, n_expert_used,
+                    n_expert, n_expert_used_impl,
                     LLM_FFN_SILU, hparams.expert_weights_norm,
                     hparams.expert_weights_scale,
                     (llama_expert_gating_func_type) hparams.expert_gating_func,
@@ -373,7 +373,7 @@ llama_model_step35::graph_mtp::graph_mtp(const llama_model & model, const llm_gr
     // cparams.nextn_layer_offset (0 = first trained head). The speculative driver
     // bumps the offset per draft step to chain heads 45->46->47. offset 0 keeps
     // single-block behavior identical to before.
-    const int n_main = (int) hparams.n_layer - (int) hparams.nextn_predict_layers;
+    const int n_main = (int) hparams.n_layer_all - (int) hparams.nextn_predict_layers;
     const int il = n_main + cparams.nextn_layer_offset;
     GGML_ASSERT(cparams.nextn_layer_offset >= 0 &&
                 cparams.nextn_layer_offset < (int) hparams.nextn_predict_layers &&
@@ -514,7 +514,7 @@ llama_model_step35::graph_mtp::graph_mtp(const llama_model & model, const llm_gr
                 layer.ffn_gate_exps,
                 layer.ffn_down_exps,
                 layer.ffn_exp_probs_b,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, hparams.expert_weights_norm,
                 hparams.expert_weights_scale,
                 (llama_expert_gating_func_type) hparams.expert_gating_func,

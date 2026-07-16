@@ -11,11 +11,11 @@ void llama_model_plamo2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_SSM_TIME_STEP_RANK, hparams.ssm_dt_rank);
     ml.get_key(LLM_KV_SSM_GROUP_COUNT,    hparams.ssm_n_group);
 
-    for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+    for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
         hparams.recurrent_layer_arr[i] = hparams.n_head_kv(i) == 0;
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 16: type = LLM_TYPE_1B; break;
         case 32:
             if (hparams.n_embd == 2048) {
@@ -52,7 +52,7 @@ void llama_model_plamo2::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
         bool is_mamba_layer = hparams.is_recurrent(i);
 
@@ -118,7 +118,7 @@ llama_model_plamo2::graph::graph(const llama_model & model, const llm_graph_para
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * residual = inpL;
 
         // ggml_graph_add_node(gf, model.layers[il].attn_norm);
@@ -163,7 +163,7 @@ llama_model_plamo2::graph::graph(const llama_model & model, const llm_graph_para
         cur = build_norm(cur, model.layers[il].ffn_post_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "ffn_post_norm", il);
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur      = ggml_get_rows(ctx0, cur, inp_out_ids);
             residual = ggml_get_rows(ctx0, residual, inp_out_ids);
         }

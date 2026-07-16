@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 if 'NO_LOCAL_GGUF' not in os.environ:
     sys.path.insert(1, str(Path(__file__).parent / 'gguf-py'))
 import gguf
+print("DEBUG: gguf module is", gguf.__file__, file=sys.stderr)
 from gguf.vocab import MistralTokenizerType, MistralVocab
 
 try:
@@ -923,6 +924,12 @@ class ModelBase:
                 # n_dims is implicit in the shape
                 logger.info(f"{f'%-{max_name_len}s' % f'{new_name},'} {old_dtype} --> {data_qtype.name}, shape = {shape_str}")
 
+                # Debug: check if tensor already exists
+                current_old_name = name  # outer loop variable
+                for tensors in self.gguf_writer.tensors:
+                    if new_name in tensors:
+                        logger.error(f"Duplicate GGUF name: {new_name} from old_name={current_old_name} (existing from some other source)")
+                
                 self.gguf_writer.add_tensor(new_name, data, raw_dtype=data_qtype)
 
     def set_type(self):
@@ -1059,7 +1066,7 @@ class TextModel(ModelBase):
             # move the text_config to the root level
             self.hparams = {**self.hparams, **self.hparams["text_config"]}
 
-        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
+        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer_all", "num_layers"])
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
         self.rope_parameters = self.hparams.get("rope_parameters", self.hparams.get("rope_scaling")) or {}
@@ -2174,7 +2181,7 @@ class MmprojModel(ModelBase):
     preprocessor_config: dict[str, Any]
     global_config: dict[str, Any]
 
-    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth", "layers", "encoder_layers", "vt_num_hidden_layers"]
+    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer_all", "num_layers", "depth", "layers", "encoder_layers", "vt_num_hidden_layers"]
 
     has_vision_encoder: bool = True # by default
     has_audio_encoder: bool = False
@@ -4676,10 +4683,10 @@ class WavTokenizerDecModel(TextModel):
         self.gguf_writer.add_group_norm_groups  (self.hparams["group_norm_groups"])
 
         self.gguf_writer.add_posnet_embedding_length(self.hparams["posnet"]["n_embd"])
-        self.gguf_writer.add_posnet_block_count     (self.hparams["posnet"]["n_layer"])
+        self.gguf_writer.add_posnet_block_count     (self.hparams["posnet"]["n_layer_all"])
 
         self.gguf_writer.add_convnext_embedding_length(self.hparams["convnext"]["n_embd"])
-        self.gguf_writer.add_convnext_block_count     (self.hparams["convnext"]["n_layer"])
+        self.gguf_writer.add_convnext_block_count     (self.hparams["convnext"]["n_layer_all"])
 
         self.gguf_writer.add_causal_attention(False)
 
@@ -5645,10 +5652,10 @@ class _Qwen35MtpMixin:
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # Remap MTP block tensors to llama.cpp's layer-indexed nextn naming.
         if name.startswith("mtp."):
-            n_layer = self.hparams["num_hidden_layers"]
+            n_layer_all = self.hparams["num_hidden_layers"]
             if name.find("layers.") != -1:
                 assert bid is not None
-                name = name.replace(f"mtp.layers.{bid}", f"model.layers.{bid + n_layer}")
+                name = name.replace(f"mtp.layers.{bid}", f"model.layers.{bid + n_layer_all}")
             else:
                 remapper = {
                     "mtp.fc":                    "model.layers.{bid}.eh_proj",
@@ -5659,7 +5666,7 @@ class _Qwen35MtpMixin:
                 stem   = Path(name).stem
                 suffix = Path(name).suffix
                 tmpl   = remapper[stem] + suffix
-                for b in range(n_layer, self.block_count):
+                for b in range(n_layer_all, self.block_count):
                     yield from super().modify_tensors(data_torch, tmpl.format(bid=b), b)  # ty: ignore[unresolved-attribute]
                 return
 
@@ -9502,7 +9509,7 @@ class DeepseekV2Model(TextModel):
         hparams = self.hparams
 
         # first_k_dense_replace: number of leading layers using dense FFN instead of MoE
-        # For non-MoE models (like Youtu), set to n_layer to use dense FFN for all layers
+        # For non-MoE models (like Youtu), set to n_layer_all to use dense FFN for all layers
         # For MoE models (like DeepSeek-V2), this is the number of leading non-MoE layers
         has_moe = hparams.get("n_routed_experts") is not None
         first_k_dense_replace = hparams.get("first_k_dense_replace")
@@ -11459,7 +11466,11 @@ class NemotronHModel(GraniteHybridModel):
         # calling the parent __init__. This is because the parent constructor
         # uses self.model_arch to build the tensor name map, and all MoE-specific
         # mappings would be missed if it were called with the default non-MoE arch.
-        hparams = ModelBase.load_hparams(args[0], self.is_mistral_format)
+        # Use the hparams passed in (from main) rather than reloading, to preserve block_configs.
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(args[0], self.is_mistral_format)
+
         has_moe_params = (
             "num_experts_per_tok" in hparams
             or (isinstance(hparams.get("llm_config"), dict) and "num_experts_per_tok" in hparams["llm_config"])
@@ -11468,7 +11479,10 @@ class NemotronHModel(GraniteHybridModel):
             self.model_arch = gguf.MODEL_ARCH.NEMOTRON_H_MOE
             self.is_moe = True
 
+        # Pass the same hparams to parent initialization
+        kwargs["hparams"] = hparams
         super().__init__(*args, **kwargs)
+
 
         # Save the top-level head_dim for later
         self.head_dim = self.hparams.get("head_dim", self.hparams.get("attention_head_dim"))
@@ -11520,18 +11534,31 @@ class NemotronHModel(GraniteHybridModel):
                 n_ff if i in self._mlp_layers else 0 for i in range(self.block_count)
             ])
         else:
-            moe_intermediate_size = self.hparams["moe_intermediate_size"]
-            self.gguf_writer.add_feed_forward_length([
-                moe_intermediate_size if i in self._mlp_layers else 0 for i in range(self.block_count)
-            ])
-            self.gguf_writer.add_expert_used_count(self.hparams["num_experts_per_tok"])
-            self.gguf_writer.add_expert_feed_forward_length(self.hparams["moe_intermediate_size"])
-            self.gguf_writer.add_expert_shared_feed_forward_length(self.hparams["moe_shared_expert_intermediate_size"])
-            self.gguf_writer.add_expert_count(self.hparams["n_routed_experts"])
-            self.gguf_writer.add_expert_shared_count(self.hparams["n_shared_experts"])
-            self.gguf_writer.add_expert_weights_norm(self.hparams["norm_topk_prob"])
-            self.gguf_writer.add_expert_weights_scale(self.hparams["routed_scaling_factor"])
-            self.gguf_writer.add_expert_group_count(self.hparams["n_group"])
+            # Handle per-block MoE configuration
+            if "block_configs" in self.hparams:
+                ffn_lengths = [cfg.get("ffn_length", 0) for cfg in self.hparams["block_configs"]]
+                experts_used = [cfg.get("experts_used", 0) for cfg in self.hparams["block_configs"]]
+            else:
+                moe_intermediate_size = self.hparams["moe_intermediate_size"]
+                ffn_lengths = [moe_intermediate_size if i in self._mlp_layers else 0 for i in range(self.block_count)]
+                experts_used = [self.hparams.get("num_experts_per_tok", 0) for _ in range(self.block_count)]
+
+            self.gguf_writer.add_feed_forward_length(ffn_lengths)
+            self.gguf_writer.add_expert_feed_forward_length(ffn_lengths)
+
+            # Shared expert parameters (if present)
+            if "moe_shared_expert_intermediate_size" in self.hparams:
+                self.gguf_writer.add_expert_shared_feed_forward_length(self.hparams["moe_shared_expert_intermediate_size"])
+            if "n_routed_experts" in self.hparams:
+                self.gguf_writer.add_expert_count(self.hparams["n_routed_experts"])
+            if "n_shared_experts" in self.hparams:
+                self.gguf_writer.add_expert_shared_count(self.hparams["n_shared_experts"])
+            if "norm_topk_prob" in self.hparams:
+                self.gguf_writer.add_expert_weights_norm(self.hparams["norm_topk_prob"])
+            if "routed_scaling_factor" in self.hparams:
+                self.gguf_writer.add_expert_weights_scale(self.hparams["routed_scaling_factor"])
+            if "n_group" in self.hparams:
+                self.gguf_writer.add_expert_group_count(self.hparams["n_group"])
 
             # number of experts used per token (top-k)
             if (n_experts_used := self.hparams.get("num_experts_per_tok")) is not None:
@@ -11660,7 +11687,7 @@ class NemotronHModel(GraniteHybridModel):
                         datas: list[Tensor] = []
 
                         for xid in range(n_experts):
-                            ename = f"backbone.layers.{bid}.mixer.experts.{xid}.{w_name}.weight"
+                            ename = f"model.layers.{bid}.mixer.experts.{xid}.{w_name}.weight"
                             datas.append(self._experts[bid][ename])
                             del self._experts[bid][ename]
 
@@ -11682,6 +11709,163 @@ class NemotronHModel(GraniteHybridModel):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
+
+
+@ModelBase.register("NemotronHPuzzleForCausalLM")
+class NemotronHPuzzleModel(NemotronHModel):
+    model_arch = gguf.MODEL_ARCH.NEMOTRON_H_MOE
+    is_moe = True
+
+    def __init__(self, dir_model: Path, *args, **kwargs):
+        # Load hparams if not provided
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(dir_model, self.is_mistral_format)
+
+        # Check for block_configs in top-level or text_config (nested)
+        block_configs = hparams.get("block_configs", [])
+        mtp_block_configs = hparams.get("mtp_block_configs", [])
+        if not block_configs and "text_config" in hparams:
+            text_cfg = hparams["text_config"]
+            block_configs = text_cfg.get("block_configs", [])
+            mtp_block_configs = text_cfg.get("mtp_block_configs", [])
+
+        # Derive n_layer_all for parent initialization
+        if "n_layer_all" not in hparams:
+            hparams["n_layer_all"] = len(block_configs) + len(mtp_block_configs)
+
+        # Build combined layers_block_type from both lists BEFORE calling super().__init__()
+        # This ensures the pattern length matches block_count.
+        layers_block_type = []
+        for cfg in block_configs:
+            layers_block_type.append(cfg.get("block_type", "default"))
+        for cfg in mtp_block_configs:
+            layers_block_type.append(cfg.get("block_type", "mtp"))
+
+        # Set the pattern in top-level hparams
+        hparams["layers_block_type"] = layers_block_type
+
+        # If text_config exists, also set it there to survive the merge in TextModel.__init__
+        if "text_config" in hparams:
+            hparams["text_config"]["layers_block_type"] = layers_block_type
+
+        # Pass modified hparams to parent initialization
+        kwargs["hparams"] = hparams
+
+        super().__init__(dir_model, *args, **kwargs)
+
+        # Store base block count for MTP tensors
+        self.base_block_count = len(block_configs)
+
+        # Debug: print layer types
+        print(f"DEBUG: block_count={self.block_count}, _attn_layers={self._attn_layers}, _ssm_layers={self._ssm_layers}")
+
+        # Fix duplicate GGUF names for SSM_CONV1D weight and bias
+        # The base mapping maps both to "blk.{bid}.ssm_conv1d". We need to differentiate.
+        for key in list(self.tensor_map.mapping.keys()):
+            if key.endswith('.mixer.conv1d.bias'):
+                _, old_name = self.tensor_map.mapping[key]
+                new_name = old_name + '.bias'
+                self.tensor_map.mapping[key] = (self.tensor_map.mapping[key][0], new_name)
+
+        # Add alias for SSM_DT with .proj suffix
+        for key in list(self.tensor_map.mapping.keys()):
+            if key.endswith('.mixer.dt_bias'):
+                _, old_name = self.tensor_map.mapping[key]
+                alias_key = key.replace('.mixer.dt_bias', '.mixer.dt_proj.bias')
+                self.tensor_map.mapping[alias_key] = (key, old_name)
+
+        # Fix duplicate GGUF names for SSM_DT weight and bias (dt_bias, dt_proj.bias)
+        for key in list(self.tensor_map.mapping.keys()):
+            if key.endswith('.mixer.dt_bias') or key.endswith('.mixer.dt_proj.bias'):
+                _, old_name = self.tensor_map.mapping[key]
+                new_name = old_name + '.bias'
+                self.tensor_map.mapping[key] = (self.tensor_map.mapping[key][0], new_name)
+
+        # Store mtp_block_configs for later use in set_gguf_parameters
+        self.mtp_block_configs = hparams.get("mtp_block_configs", [])
+
+        # Set head_dim and d_inner
+        self.head_dim = self.hparams.get("head_dim", 64)
+        self.d_inner = self.hparams.get("d_inner", 4096)
+
+        # Debug: print tensor map entries for norms
+        import pprint
+        pprint.pprint({k: v for k, v in self.tensor_map.mapping.items() if 'norm' in k})
+
+    @classmethod
+    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+        name, gen = item
+        # Rewrite MTP tensors to use global block index instead of local MTP index
+        if name.startswith("mtp."):
+            parts = name.split(".")
+            if len(parts) >= 2 and parts[1].isdigit():
+                mtp_idx = int(parts[1])
+                base_count = getattr(cls, "_base_block_count", 0)
+                global_bid = base_count + mtp_idx
+                new_name = "mtp." + str(global_bid) + "." + ".".join(parts[2:])
+                return (new_name, gen)
+        return super().filter_tensors(item)
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+
+        # Build combined all_block_configs list
+        all_block_configs = []
+        if "block_configs" in self.hparams:
+            all_block_configs.extend(self.hparams["block_configs"])
+        if "mtp_block_configs" in self.hparams:
+            all_block_configs.extend(self.hparams["mtp_block_configs"])
+
+        # Extract ffn_lengths and experts_used from the combined configs
+        ffn_lengths = [cfg.get("ffn_length", 0) for cfg in all_block_configs]
+        experts_used = [cfg.get("experts_used", 0) for cfg in all_block_configs]
+
+        # Add expert parameters
+        # Add expert weights (if any)
+        if self._experts is not None:
+            for i, expert in enumerate(self._experts):
+                if "w1" in expert:
+                    self.gguf_writer.add_expert_weight(i, 0, "w1", expert["w1"])
+                if "w2" in expert:
+                    self.gguf_writer.add_expert_weight(i, 0, "w2", expert["w2"])
+                if "w3" in expert:
+                    self.gguf_writer.add_expert_weight(i, 0, "w3", expert["w3"])
+
+        # Add nextn predict layers
+        self.gguf_writer.add_nextn_predict_layers(len(self.mtp_block_configs))
+
+    def modify_tensors(self, data_torch, name, bid):
+        # Handle tensors starting with "mtp." specially
+        if name.startswith("mtp."):
+            # Map MTP tensors to their correct names
+            if name == "mtp.eh_proj":
+                new_name = "eh_proj"
+            elif name == "mtp.enorm":
+                new_name = "enorm"
+            elif name == "mtp.hnorm":
+                new_name = "hnorm"
+            elif name == "mtp.final_layernorm":
+                new_name = "final_layernorm"
+            else:
+                # For other MTP tensors, rewrite names to use mtp.layers.{global_bid} pattern
+                parts = name.split(".")[1:]  # Skip "mtp"
+                if len(parts) >= 2 and parts[0] == "layers" and parts[1].isdigit():
+                    mtp_idx = parts[1]
+                    remaining = ".".join(parts[2:])
+                    global_bid = self.base_block_count + int(mtp_idx)
+                    new_name = f"mtp.layers.{global_bid}.{remaining}"
+                elif len(parts) >= 1 and parts[0].isdigit():
+                    mtp_idx = parts[0]
+                    remaining = ".".join(parts[1:])
+                    global_bid = self.base_block_count + int(mtp_idx)
+                    new_name = f"mtp.layers.{global_bid}.{remaining}"
+                else:
+                    new_name = name  # keep original
+
+            yield from super().modify_tensors(data_torch, new_name, bid)
+        else:
+            yield from super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("LlamaBidirectionalModel")
@@ -14377,6 +14561,10 @@ def split_str_to_n_bytes(split_str: str) -> int:
 
 
 def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> str:
+    # DEBUG
+    import sys
+    print(f"DEBUG get_model_architecture called with keys: {list(hparams.keys())}", file=sys.stderr)
+    
     # TODO @ngxson : this won't work correctly if the model has both audio & vision encoders
     # maybe we should fallback to text model's arch in that case, since not many models have both
     text_config = hparams.get("text_config", {})
@@ -14399,8 +14587,16 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
         arch = text_config["architectures"][0]
     elif model_type == ModelType.MMPROJ and vision_config.get("architectures") is not None:
         arch = vision_config["architectures"][0]
+    
     if arch is None:
+        # Fallback: detect NemotronHPuzzleForCausalLM by presence of block_configs anywhere in hparams
+        # Check top-level, text_config, and vision_config
+        check_configs = [hparams, text_config, vision_config]
+        for cfg in check_configs:
+            if cfg and ("block_configs" in cfg or "mtp_block_configs" in cfg):
+                return "NemotronHPuzzleForCausalLM"
         raise ValueError("Failed to detect model architecture")
+    
     return arch
 
 

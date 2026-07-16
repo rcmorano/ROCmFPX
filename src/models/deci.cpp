@@ -2,7 +2,7 @@
 
 void llama_model_deci::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 32: type = LLM_TYPE_7B; break;
         case 80: type = LLM_TYPE_70B; break;
         case 162: type = LLM_TYPE_405B; break;
@@ -24,7 +24,7 @@ void llama_model_deci::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
         const int64_t n_embd_k_gqa  = hparams.n_embd_k_gqa(i);
         const int64_t n_embd_v_gqa  = hparams.n_embd_v_gqa(i);
@@ -97,7 +97,7 @@ llama_model_deci::graph::graph(const llama_model & model, const llm_graph_params
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * inpSA     = inpL;
         const int64_t n_head_kv = hparams.n_head_kv(il);
         const int64_t n_head    = hparams.n_head(il);
@@ -138,7 +138,7 @@ llama_model_deci::graph::graph(const llama_model & model, const llm_graph_params
                     model.layers[il].wo, model.layers[il].wo_b, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

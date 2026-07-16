@@ -64,7 +64,7 @@ ggml_cgraph * clip_graph_conformer::build() {
     // pos_emb
     cb(pos_emb, "pos_emb", -1);
 
-    for (int il = 0; il < hparams.n_layer; il++) {
+    for (int il = 0; il < hparams.n_layer_all; il++) {
         const auto & layer = model.layers[il];
 
         auto * residual = cur;

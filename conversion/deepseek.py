@@ -338,7 +338,7 @@ class DeepseekV2Model(TextModel):
         hparams = self.hparams
 
         # first_k_dense_replace: number of leading layers using dense FFN instead of MoE
-        # For non-MoE models (like Youtu), set to n_layer to use dense FFN for all layers
+        # For non-MoE models (like Youtu), set to n_layer_all to use dense FFN for all layers
         # For MoE models (like DeepSeek-V2), this is the number of leading non-MoE layers
         has_moe = hparams.get("n_routed_experts") is not None
         first_k_dense_replace = hparams.get("first_k_dense_replace")

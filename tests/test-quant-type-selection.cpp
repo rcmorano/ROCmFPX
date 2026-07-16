@@ -227,7 +227,7 @@ static llama_model * build_mock_model_from_remote(const gguf_remote_model & remo
     desc.architecture           = remote.architecture.c_str();
     desc.n_embd                 = remote.n_embd;
     desc.n_ff                   = remote.n_ff;
-    desc.n_layer                = remote.n_layer;
+    desc.n_layer_all                = remote.n_layer_all;
     desc.n_head                 = remote.n_head;
     desc.n_head_kv              = remote.n_head_kv;
     desc.n_expert               = remote.n_expert;
@@ -284,7 +284,7 @@ static std::string generate_snapshot(const std::string &       name,
 
     out << "# Model: " << name << "\n";
     out << "# n_embd=" << remote.n_embd << ", n_ff=" << remote.n_ff << ", n_vocab=" << remote.n_vocab
-        << ", n_layer=" << remote.n_layer << ", n_head=" << remote.n_head << ", n_head_kv=" << remote.n_head_kv;
+        << ", n_layer_all=" << remote.n_layer_all << ", n_head=" << remote.n_head << ", n_head_kv=" << remote.n_head_kv;
     if (remote.n_expert > 0) {
         out << ", n_expert=" << remote.n_expert;
     }

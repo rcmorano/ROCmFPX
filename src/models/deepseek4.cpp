@@ -9,7 +9,7 @@ void llama_model_deepseek4::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_Q_LORA_RANK,       hparams.n_lora_q);
     ml.get_key(LLM_KV_ATTENTION_OUTPUT_LORA_RANK,  hparams.n_lora_o);
     ml.get_key(LLM_KV_ATTENTION_OUTPUT_GROUP_COUNT,hparams.n_attn_out_groups);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,         hparams.n_expert_shared);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,        hparams.expert_weights_scale, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,         hparams.expert_weights_norm, false);
@@ -27,11 +27,11 @@ void llama_model_deepseek4::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_INDEXER_TOP_K,      hparams.indexer_top_k, false);
     ml.get_key(LLM_KV_HASH_LAYER_COUNT,             hparams.n_hash_layers);
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS,        hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
     ml.get_key(LLM_KV_HYPER_CONNECTION_COUNT,          hparams.n_hc);
     ml.get_key(LLM_KV_HYPER_CONNECTION_SINKHORN_ITERS, hparams.hc_sinkhorn_iters);
     ml.get_key(LLM_KV_HYPER_CONNECTION_EPS,            hparams.hc_eps);
-    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_EXP,     hparams.swiglu_clamp_exp, hparams.n_layer, false);
+    ml.get_key_or_arr(LLM_KV_SWIGLU_CLAMP_EXP,     hparams.swiglu_clamp_exp, hparams.n_layer_all, false);
 
     if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_NONE) {
         hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SQRTSOFTPLUS;
@@ -39,13 +39,13 @@ void llama_model_deepseek4::load_arch_hparams(llama_model_loader & ml) {
 
     std::vector<uint32_t> compress_ratios;
     ml.get_arr(LLM_KV_ATTENTION_COMPRESS_RATIOS, compress_ratios);
-    if (compress_ratios.size() < hparams.n_layer) {
+    if (compress_ratios.size() < hparams.n_layer_all) {
         throw std::runtime_error(format("DeepSeek V4 compress ratio count mismatch: got %zu, expected %u",
-                    compress_ratios.size(), hparams.n_layer));
+                    compress_ratios.size(), hparams.n_layer_all));
     }
-    std::copy_n(compress_ratios.begin(), hparams.n_layer, hparams.attn_compress_ratio.begin());
+    std::copy_n(compress_ratios.begin(), hparams.n_layer_all, hparams.attn_compress_ratio.begin());
 
-    for (uint32_t il = 0; il < hparams.n_layer; ++il) {
+    for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
         const uint32_t ratio = hparams.attn_compress_ratio[il];
         if (ratio == 0) {
             continue;
@@ -62,13 +62,13 @@ void llama_model_deepseek4::load_arch_hparams(llama_model_loader & ml) {
     type = LLM_TYPE_UNKNOWN;
 }
 
-void llama_model_deepseek4::load_arch_tensors(llama_model_loader & ml) {
+void llama_model_deepseek4::load_arch_tensors(llama_model_loader &) {
     LLAMA_LOAD_LOCALS;
 
     const int64_t q_lora_rank     = hparams.n_lora_q;
     const int64_t o_lora_rank     = hparams.n_lora_o;
     const int64_t n_out_groups    = hparams.n_attn_out_groups;
-    const int64_t n_ff_exp        = hparams.n_ff_exp;
+    const int64_t n_ff_exp_impl        = hparams.n_ff_exp_impl;
     const int64_t n_expert_shared = hparams.n_expert_shared;
     const int64_t n_hc            = hparams.n_hc;
     const int64_t hc_dim          = n_hc * n_embd;
@@ -99,12 +99,12 @@ void llama_model_deepseek4::load_arch_tensors(llama_model_loader & ml) {
         norm = create_tensor(tn(indexer ? LLM_TENSOR_INDEXER_COMPRESSOR_NORM : LLM_TENSOR_ATTN_COMPRESSOR_NORM, "weight", bid), {head_size}, 0);
     };
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         const int64_t ratio = hparams.attn_compress_ratio[i];
         const bool is_nextn = hparams.nextn_predict_layers > 0 &&
-            static_cast<uint32_t>(i) >= hparams.n_layer - hparams.nextn_predict_layers;
+            static_cast<uint32_t>(i) >= hparams.n_layer_all - hparams.nextn_predict_layers;
 
         layer.hc_attn_base  = create_tensor(tn(LLM_TENSOR_HC_ATTN_BASE,  "weight", i), {hc_mix}, 0);
         layer.hc_attn_fn    = create_tensor(tn(LLM_TENSOR_HC_ATTN_FN,    "weight", i), {hc_dim, hc_mix}, 0);
@@ -136,40 +136,20 @@ void llama_model_deepseek4::load_arch_tensors(llama_model_loader & ml) {
 
         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert}, 0);
         if (static_cast<uint32_t>(i) < hparams.n_hash_layers) {
-            layer.ffn_gate_tid2eid = create_tensor(tn(LLM_TENSOR_FFN_GATE_TID2EID, "weight", i), {n_expert_used, n_vocab}, 0);
+            layer.ffn_gate_tid2eid = create_tensor(tn(LLM_TENSOR_FFN_GATE_TID2EID, "weight", i), {n_expert_used_impl, n_vocab}, 0);
             layer.ffn_exp_probs_b  = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B,  "bias",   i), {n_expert}, TENSOR_NOT_REQUIRED);
         } else {
             layer.ffn_exp_probs_b  = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B,  "bias",   i), {n_expert}, 0);
-            layer.ffn_gate_tid2eid = create_tensor(tn(LLM_TENSOR_FFN_GATE_TID2EID, "weight", i), {n_expert_used, n_vocab}, TENSOR_NOT_REQUIRED);
+            layer.ffn_gate_tid2eid = create_tensor(tn(LLM_TENSOR_FFN_GATE_TID2EID, "weight", i), {n_expert_used_impl, n_vocab}, TENSOR_NOT_REQUIRED);
         }
 
-        const auto gate_exps_name = tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i);
-        const auto down_exps_name = tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i);
-        const auto up_exps_name   = tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i);
+        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd,   n_ff_exp_impl, n_expert}, 0);
+        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl, n_embd,   n_expert}, 0);
+        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd,   n_ff_exp_impl, n_expert}, 0);
 
-        const ggml_tensor * gate_exps_meta = ml.get_tensor_meta(gate_exps_name.str().c_str());
-        const ggml_tensor * down_exps_meta = ml.get_tensor_meta(down_exps_name.str().c_str());
-        const ggml_tensor * up_exps_meta   = ml.get_tensor_meta(up_exps_name.str().c_str());
-
-        const bool fable_half_width_experts =
-            gate_exps_meta && down_exps_meta && up_exps_meta &&
-            gate_exps_meta->ne[0] == n_embd / 2 && gate_exps_meta->ne[1] == n_ff_exp     && gate_exps_meta->ne[2] == n_expert &&
-            up_exps_meta->ne[0]   == n_embd / 2 && up_exps_meta->ne[1]   == n_ff_exp     && up_exps_meta->ne[2]   == n_expert &&
-            down_exps_meta->ne[0] == n_ff_exp / 2 && down_exps_meta->ne[1] == n_embd     && down_exps_meta->ne[2] == n_expert;
-
-        if (fable_half_width_experts) {
-            layer.ffn_gate_exps = create_tensor(gate_exps_name, {n_embd / 2,   n_ff_exp, n_expert}, 0);
-            layer.ffn_down_exps = create_tensor(down_exps_name, {n_ff_exp / 2, n_embd,   n_expert}, 0);
-            layer.ffn_up_exps   = create_tensor(up_exps_name,   {n_embd / 2,   n_ff_exp, n_expert}, 0);
-        } else {
-            layer.ffn_gate_exps = create_tensor(gate_exps_name, {n_embd,   n_ff_exp, n_expert}, 0);
-            layer.ffn_down_exps = create_tensor(down_exps_name, {n_ff_exp, n_embd,   n_expert}, 0);
-            layer.ffn_up_exps   = create_tensor(up_exps_name,   {n_embd,   n_ff_exp, n_expert}, 0);
-        }
-
-        layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, n_ff_exp * n_expert_shared}, 0);
-        layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {n_ff_exp * n_expert_shared, n_embd}, 0);
-        layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_exp * n_expert_shared}, 0);
+        layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, n_ff_exp_impl * n_expert_shared}, 0);
+        layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {n_ff_exp_impl * n_expert_shared, n_embd}, 0);
+        layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_exp_impl * n_expert_shared}, 0);
 
         if (is_nextn) {
             layer.nextn.e_proj           = create_tensor(tn(LLM_TENSOR_NEXTN_E_PROJ,          "weight", i), {n_embd, n_embd}, 0);

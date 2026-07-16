@@ -3,7 +3,7 @@
 void llama_model_jais2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS, hparams.f_norm_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 32: type = LLM_TYPE_8B; break;
         case 68: type = LLM_TYPE_70B; break;
         default: type = LLM_TYPE_UNKNOWN;
@@ -23,7 +23,7 @@ void llama_model_jais2::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm   = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -76,7 +76,7 @@ llama_model_jais2::graph::graph(const llama_model & model, const llm_graph_param
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         // Pre-attention LayerNorm
         cur = build_norm(inpL,
                 model.layers[il].attn_norm,
@@ -110,7 +110,7 @@ llama_model_jais2::graph::graph(const llama_model & model, const llm_graph_param
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur  = ggml_get_rows(ctx0,  cur, inp_out_ids);
             inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
         }

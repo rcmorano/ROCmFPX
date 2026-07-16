@@ -66,7 +66,7 @@ void llama_model_eagle3::load_arch_tensors(llama_model_loader &) {
     }
 
     // Single decoder layer
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         // input_layernorm: applied to token embeddings
@@ -150,7 +150,7 @@ llama_model_eagle3::graph<false>::graph(const llama_model & model, const llm_gra
     const int64_t n_embd_head = hparams.n_embd_head_v();
 
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
-    GGML_ASSERT(n_layer == 1);  // eagle3 has only one decoder layer
+    GGML_ASSERT(n_layer_all == 1);  // eagle3 has only one decoder layer
 
     ggml_tensor * cur;
     ggml_tensor * inpL;

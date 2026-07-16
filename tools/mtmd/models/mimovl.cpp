@@ -25,7 +25,7 @@ ggml_cgraph * clip_graph_mimovl::build() {
     GGML_ASSERT(model.class_embedding == nullptr);
     GGML_ASSERT(hparams.n_head_kv > 0);
     GGML_ASSERT(n_head % hparams.n_head_kv == 0);
-    GGML_ASSERT((int) hparams.wa_pattern_mode.size() == n_layer);
+    GGML_ASSERT((int) hparams.wa_pattern_mode.size() == n_layer_all);
 
     const int batch_size = 1;
     const int n_pos      = n_patches;
@@ -106,7 +106,7 @@ ggml_cgraph * clip_graph_mimovl::build() {
     ggml_tensor * inpL = inp;
     int prev_mode = -1;
 
-    for (int il = 0; il < n_layer; il++) {
+    for (int il = 0; il < n_layer_all; il++) {
         const auto & layer = model.layers[il];
         const int  mode    = hparams.wa_pattern_mode[il];
         const bool is_full = (mode == -1);
@@ -191,7 +191,7 @@ ggml_cgraph * clip_graph_mimovl::build() {
     }
 
     // Merger: post-LayerNorm
-    inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, NORM_TYPE_NORMAL, 1e-6f, n_layer);
+    inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, NORM_TYPE_NORMAL, 1e-6f, n_layer_all);
     cb(inpL, "post_ln", -1);
 
     // Spatial merge: pack each merge_unit (=4) of patches into a single

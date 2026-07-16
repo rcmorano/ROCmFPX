@@ -305,7 +305,7 @@ static std::optional<gguf_remote_model> gguf_parse_meta(const std::vector<char> 
 
             if      (key == arch_prefix + "embedding_length")         { target = &model.n_embd; }
             else if (key == arch_prefix + "feed_forward_length")      { target = &model.n_ff; }
-            else if (key == arch_prefix + "block_count")              { target = &model.n_layer; }
+            else if (key == arch_prefix + "block_count")              { target = &model.n_layer_all; }
             else if (key == arch_prefix + "attention.head_count")     { target = &model.n_head; }
             else if (key == arch_prefix + "attention.head_count_kv")  { target = &model.n_head_kv; }
             else if (key == arch_prefix + "expert_count")             { target = &model.n_expert; }

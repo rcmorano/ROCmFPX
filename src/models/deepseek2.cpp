@@ -5,7 +5,7 @@ void llama_model_deepseek2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_VOCAB_SIZE, n_vocab, false) || ml.get_arr_n(LLM_KV_TOKENIZER_LIST, n_vocab, false);
 
     // lite variants include DeepSeek-V2-Lite, GigaChat3-10B-A1.8B, Kanana-2-30B-A3B
-    const bool is_lite = (hparams.n_layer == 27 || hparams.n_layer == 26 || (hparams.n_layer == 48 && n_vocab == 128256));
+    const bool is_lite = (hparams.n_layer_all == 27 || hparams.n_layer_all == 26 || (hparams.n_layer_all == 48 && n_vocab == 128256));
 
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
     ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,   hparams.n_layer_dense_lead, false);
@@ -15,7 +15,7 @@ void llama_model_deepseek2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_KV_LORA_RANK,     hparams.n_lora_kv);
     ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH_MLA,   hparams.n_embd_head_k_mla_impl, false);
     ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH_MLA, hparams.n_embd_head_v_mla_impl, false);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,        hparams.n_expert_shared);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,       hparams.expert_weights_scale, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,        hparams.expert_weights_norm, false);
@@ -23,7 +23,7 @@ void llama_model_deepseek2::load_arch_hparams(llama_model_loader & ml) {
     if (hparams.expert_gating_func == LLAMA_EXPERT_GATING_FUNC_TYPE_NONE) {
         // for compatibility with existing DeepSeek V2 and V2.5 GGUFs
         // that have no expert_gating_func model parameter set
-        if ((hparams.n_layer == 47 || hparams.n_layer == 48) && n_vocab == 154880) {
+        if ((hparams.n_layer_all == 47 || hparams.n_layer_all == 48) && n_vocab == 154880) {
             // GLM 4.7 Lite
             hparams.expert_gating_func = LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID;
         } else {
@@ -43,7 +43,7 @@ void llama_model_deepseek2::load_arch_hparams(llama_model_loader & ml) {
 
     hparams.f_attn_temp_offset = 0.0f;
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 27: type = LLM_TYPE_16B; break;
         case 47: type = LLM_TYPE_30B_A3B; break;
         case 60: type = LLM_TYPE_236B; break;
@@ -69,7 +69,7 @@ void llama_model_deepseek2::load_arch_tensors(llama_model_loader &) {
     const int64_t q_lora_rank  = hparams.n_lora_q;
     const int64_t kv_lora_rank = hparams.n_lora_kv;
 
-    const int64_t n_ff_exp        = hparams.n_ff_exp;
+    const int64_t n_ff_exp_impl        = hparams.n_ff_exp_impl;
 
     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
 
@@ -81,7 +81,7 @@ void llama_model_deepseek2::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -123,18 +123,18 @@ void llama_model_deepseek2::load_arch_tensors(llama_model_loader &) {
             if (n_expert == 0) {
                 throw std::runtime_error("n_expert must be > 0");
             }
-            if (n_expert_used == 0) {
-                throw std::runtime_error("n_expert_used must be > 0");
+            if (n_expert_used_impl == 0) {
+                throw std::runtime_error("n_expert_used_impl must be > 0");
             }
 
             // MoE branch
-            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp,   n_embd, n_expert}, 0);
-            create_tensor_gate_up_exps(layer, i, n_embd, n_ff_exp, n_expert, 0);
+            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp_impl,   n_embd, n_expert}, 0);
+            create_tensor_gate_up_exps(layer, i, n_embd, n_ff_exp_impl, n_expert, 0);
 
             // Shared expert branch
-            layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, n_ff_exp * n_expert_shared}, 0);
-            layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {        n_ff_exp * n_expert_shared, n_embd}, 0);
-            layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_exp * n_expert_shared}, 0);
+            layer.ffn_gate_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_SHEXP, "weight", i), {n_embd, n_ff_exp_impl * n_expert_shared}, 0);
+            layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {        n_ff_exp_impl * n_expert_shared, n_embd}, 0);
+            layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_exp_impl * n_expert_shared}, 0);
         }
     }
 }
@@ -191,7 +191,7 @@ llama_model_deepseek2::graph::graph(const llama_model & model, const llm_graph_p
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    int effective_n_layers = hparams.n_layer - hparams.nextn_predict_layers;
+    int effective_n_layers = hparams.n_layer_all - hparams.nextn_predict_layers;
     for (int il = 0; il < effective_n_layers; ++il) {
         ggml_tensor * inpSA = inpL;
 
@@ -391,7 +391,7 @@ llama_model_deepseek2::graph::graph(const llama_model & model, const llm_graph_p
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 model.layers[il].ffn_exp_probs_b,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, hparams.expert_weights_norm,
                 hparams.expert_weights_scale,
                 (llama_expert_gating_func_type) hparams.expert_gating_func,

@@ -96,7 +96,7 @@ ggml_cgraph * clip_graph_qwen2vl::build() {
     }
 
     // loop over layers
-    for (int il = 0; il < n_layer; il++) {
+    for (int il = 0; il < n_layer_all; il++) {
         const auto & layer = model.layers[il];
         const bool full_attn = use_window_attn ? (il + 1) % n_wa_pattern == 0 : true;
 
@@ -170,7 +170,7 @@ ggml_cgraph * clip_graph_qwen2vl::build() {
 
     // post-layernorm
     if (model.post_ln_w) {
-        inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer);
+        inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer_all);
     }
 
     // multimodal projection

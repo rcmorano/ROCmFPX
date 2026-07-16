@@ -18,7 +18,7 @@ void llama_model_wavtokenizer_dec::load_arch_tensors(llama_model_loader &) {
     {
         const int64_t n_embd = hparams.posnet.n_embd;
 
-        for (uint32_t i = 0; i < hparams.posnet.n_layer; ++i) {
+        for (uint32_t i = 0; i < hparams.posnet.n_layer_all; ++i) {
             auto & layer = layers[i].posnet;
 
             // posnet:
@@ -84,7 +84,7 @@ void llama_model_wavtokenizer_dec::load_arch_tensors(llama_model_loader &) {
     {
         const int64_t n_embd = hparams.convnext.n_embd;
 
-        for (uint32_t i = 0; i < hparams.convnext.n_layer; ++i) {
+        for (uint32_t i = 0; i < hparams.convnext.n_layer_all; ++i) {
             auto & layer = layers[i].convnext;
 
             layer.dw     = create_tensor(tn(LLM_TENSOR_CONVNEXT_DW,    "weight", i), {7, 1, n_embd}, 0);
@@ -127,7 +127,7 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
     cur = ggml_add(ctx0, cur, model.conv1d_b);
 
     // posnet
-    for (uint32_t il = 0; il < hparams.posnet.n_layer; ++il) {
+    for (uint32_t il = 0; il < hparams.posnet.n_layer_all; ++il) {
         const auto & layer = model.layers[il].posnet;
 
         inpL = cur;
@@ -215,7 +215,7 @@ llama_model_wavtokenizer_dec::graph::graph(const llama_model & model, const llm_
     inpL = cur;
 
     // convnext
-    for (uint32_t il = 0; il < hparams.convnext.n_layer; ++il) {
+    for (uint32_t il = 0; il < hparams.convnext.n_layer_all; ++il) {
         const auto & layer = model.layers[il].convnext;
 
         cur = inpL;

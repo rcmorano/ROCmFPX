@@ -6,7 +6,6 @@
 #include "llama-cparams.h"
 
 #include "llama-kv-cache.h"
-#include "llama-kv-cache-dsa.h"
 #include "llama-kv-cache-iswa.h"
 #include "llama-memory-hybrid.h"
 #include "llama-memory-hybrid-iswa.h"
@@ -501,9 +500,7 @@ void llm_graph_input_attn_kv::set_input(const llama_ubatch * ubatch) {
     mctx->set_input_k_idxs(self_k_idxs, ubatch);
     mctx->set_input_v_idxs(self_v_idxs, ubatch);
 
-    if (self_kq_mask && self_kq_mask->buffer) {
-        mctx->set_input_kq_mask(self_kq_mask, ubatch, cparams.causal_attn);
-    }
+    mctx->set_input_kq_mask(self_kq_mask, ubatch, cparams.causal_attn);
 
     if (self_k_rot) {
         mctx->set_input_k_rot(self_k_rot);
@@ -545,29 +542,6 @@ bool llm_graph_input_attn_k::can_reuse(const llm_graph_params & params) {
     res &= self_k_idxs->ne[0] == params.ubatch.n_tokens;
 
     res &= can_reuse_kq_mask(self_kq_mask, mctx, params.ubatch, params.cparams);
-
-    return res;
-}
-
-void llm_graph_input_attn_k_dsa::set_input(const llama_ubatch * ubatch) {
-    mctx->get_mla()->set_input_k_idxs(self_k_idxs_mla, ubatch);
-    mctx->get_mla()->set_input_kq_mask(self_kq_mask_mla, ubatch, cparams.causal_attn);
-
-    mctx->get_lid()->set_input_k_idxs(self_k_idxs_lid, ubatch);
-    mctx->get_lid()->set_input_kq_mask(self_kq_mask_lid, ubatch, cparams.causal_attn);
-    mctx->get_lid()->set_input_k_rot(self_k_rot_lid);
-}
-
-bool llm_graph_input_attn_k_dsa::can_reuse(const llm_graph_params & params) {
-    const auto * mctx = static_cast<const llama_kv_cache_dsa_context *>(params.mctx);
-
-    this->mctx = mctx;
-
-    bool res = true;
-    res &= self_k_idxs_mla->ne[0] == params.ubatch.n_tokens;
-    res &= self_k_idxs_lid->ne[0] == params.ubatch.n_tokens;
-    res &= can_reuse_kq_mask(self_kq_mask_mla, mctx->get_mla(), params.ubatch, params.cparams);
-    res &= can_reuse_kq_mask(self_kq_mask_lid, mctx->get_lid(), params.ubatch, params.cparams);
 
     return res;
 }
@@ -1072,7 +1046,7 @@ llm_graph_context::llm_graph_context(const llm_graph_params & params) :
     cparams          (params.cparams),
     ubatch           (params.ubatch),
     n_embd           (hparams.n_embd),
-    n_layer          (hparams.n_layer),
+    n_layer_all      (hparams.n_layer_all),
     n_rot            (hparams.n_rot()),
     n_ctx            (cparams.n_ctx),
     n_head           (hparams.n_head()),
@@ -1082,7 +1056,7 @@ llm_graph_context::llm_graph_context(const llm_graph_params & params) :
     n_embd_head_v    (hparams.n_embd_head_v()),
     n_embd_v_gqa     (hparams.n_embd_v_gqa()),
     n_expert         (hparams.n_expert),
-    n_expert_used    (cparams.warmup ? hparams.n_expert : hparams.n_expert_used),
+    n_expert_used_impl    (cparams.warmup ? hparams.n_expert : hparams.n_expert_used_impl),
     freq_base        (cparams.rope_freq_base),
     freq_scale       (cparams.rope_freq_scale),
     ext_factor       (cparams.yarn_ext_factor),
@@ -1501,7 +1475,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
          ggml_tensor * down_exps,
          ggml_tensor * exp_probs_b,
              int64_t   n_expert,
-             int64_t   n_expert_used,
+             int64_t   n_expert_used_impl,
      llm_ffn_op_type   type_op,
                 bool   norm_w,
                float   w_scale,
@@ -1521,7 +1495,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         down_exps, /* down_exps_b */ nullptr,
         exp_probs_b,
         n_expert,
-        n_expert_used,
+        n_expert_used_impl,
         type_op,
         norm_w,
         w_scale,
@@ -1549,7 +1523,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
          ggml_tensor * down_exps_b,
          ggml_tensor * exp_probs_b,
              int64_t   n_expert,
-             int64_t   n_expert_used,
+             int64_t   n_expert_used_impl,
      llm_ffn_op_type   type_op,
                 bool   norm_w,
                float   w_scale,
@@ -1651,7 +1625,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     // select experts
     ggml_tensor * selected_experts = selected_experts_in;
     if (selected_experts == nullptr) {
-        selected_experts = ggml_argsort_top_k(ctx0, selection_probs, n_expert_used); // [n_expert_used, n_tokens]
+        selected_experts = ggml_argsort_top_k(ctx0, selection_probs, n_expert_used_impl); // [n_expert_used_impl, n_tokens]
         cb(selected_experts->src[0], "ffn_moe_argsort", il);
     }
     cb(selected_experts, "ffn_moe_topk", il);
@@ -1665,19 +1639,19 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         probs = ggml_reshape_3d(ctx0, probs, 1, n_expert, n_tokens);
     }
 
-    ggml_tensor * weights = ggml_get_rows(ctx0, probs, selected_experts); // [1, n_expert_used, n_tokens]
+    ggml_tensor * weights = ggml_get_rows(ctx0, probs, selected_experts); // [1, n_expert_used_impl, n_tokens]
     cb(weights, "ffn_moe_weights", il);
 
 
     if (gating_op == LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX_WEIGHT) {
-        weights = ggml_reshape_2d(ctx0, weights, n_expert_used, n_tokens);
-        weights = ggml_soft_max(ctx0, weights); // [n_expert_used, n_tokens]
-        weights = ggml_reshape_3d(ctx0, weights, 1, n_expert_used, n_tokens);
+        weights = ggml_reshape_2d(ctx0, weights, n_expert_used_impl, n_tokens);
+        weights = ggml_soft_max(ctx0, weights); // [n_expert_used_impl, n_tokens]
+        weights = ggml_reshape_3d(ctx0, weights, 1, n_expert_used_impl, n_tokens);
         cb(weights, "ffn_moe_weights_softmax", il);
     }
 
     if (norm_w) {
-        weights = ggml_reshape_2d(ctx0, weights, n_expert_used, n_tokens);
+        weights = ggml_reshape_2d(ctx0, weights, n_expert_used_impl, n_tokens);
 
         ggml_tensor * weights_sum = ggml_sum_rows(ctx0, weights); // [1, n_tokens]
         cb(weights_sum, "ffn_moe_weights_sum", il);
@@ -1686,10 +1660,10 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         weights_sum = ggml_clamp(ctx0, weights_sum, 6.103515625e-5, INFINITY);
         cb(weights_sum, "ffn_moe_weights_sum_clamped", il);
 
-        weights = ggml_div(ctx0, weights, weights_sum); // [n_expert_used, n_tokens]
+        weights = ggml_div(ctx0, weights, weights_sum); // [n_expert_used_impl, n_tokens]
         cb(weights, "ffn_moe_weights_norm", il);
 
-        weights = ggml_reshape_3d(ctx0, weights, 1, n_expert_used, n_tokens);
+        weights = ggml_reshape_3d(ctx0, weights, 1, n_expert_used_impl, n_tokens);
     }
     if (w_scale != 0.0f && w_scale != 1.0f) {
         weights = ggml_scale(ctx0, weights, w_scale);
@@ -1701,26 +1675,11 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
 
     cur = ggml_reshape_3d(ctx0, cur, n_embd, 1, n_tokens);
 
-    const int64_t n_expert_in = gate_up_exps ? gate_up_exps->ne[0] :
-            up_exps ? up_exps->ne[0] :
-            gate_exps ? gate_exps->ne[0] : n_embd;
-    const int64_t n_ff_down = down_exps ? down_exps->ne[0] : 0;
-    const int64_t n_moe_out = down_exps ? down_exps->ne[1] : n_embd;
-    ggml_tensor * cur_expert_in = cur;
-    if (n_expert_in > 0 && n_expert_in < n_embd) {
-        cur_expert_in = ggml_view_3d(ctx0, cur, n_expert_in, 1, n_tokens, cur->nb[1], cur->nb[2], 0);
-        cur_expert_in = ggml_cont(ctx0, cur_expert_in);
-        if (cur_expert_in->type != GGML_TYPE_F32 && cur_expert_in->type != GGML_TYPE_F16) {
-            cur_expert_in = ggml_cast(ctx0, cur_expert_in, GGML_TYPE_F32);
-        }
-        cb(cur_expert_in, "ffn_moe_expert_in", il);
-    }
-
     if (weight_before_ffn) {
-        // repeat cur to [n_embd, n_expert_used, n_tokens]
-        ggml_tensor * repeated = ggml_repeat_4d(ctx0, cur_expert_in, n_expert_in, n_expert_used, n_tokens, 1);
-        cur_expert_in = ggml_mul(ctx0, repeated, weights);
-        cb(cur_expert_in, "ffn_moe_weighted", il);
+        // repeat cur to [n_embd, n_expert_used_impl, n_tokens]
+        ggml_tensor * repeated = ggml_repeat_4d(ctx0, cur, n_embd, n_expert_used_impl, n_tokens, 1);
+        cur = ggml_mul(ctx0, repeated, weights);
+        cb(cur, "ffn_moe_weighted", il);
     }
 
     ggml_tensor * up = nullptr;
@@ -1728,7 +1687,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
 
     if (gate_up_exps) {
         // merged gate_up path: one mul_mat_id, then split into gate and up views
-        ggml_tensor * gate_up = build_lora_mm_id(gate_up_exps, cur_expert_in, selected_experts, up_exps_s); // [n_ff*2, n_expert_used, n_tokens]
+        ggml_tensor * gate_up = build_lora_mm_id(gate_up_exps, cur, selected_experts, up_exps_s); // [n_ff*2, n_expert_used_impl, n_tokens]
         cb(gate_up, "ffn_moe_gate_up", il);
 
         if (up_exps_s) {
@@ -1747,7 +1706,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         cb(up, "ffn_moe_up", il);
     } else {
         // separate gate and up path
-        up = build_lora_mm_id(up_exps, cur_expert_in, selected_experts, up_exps_s); // [n_ff, n_expert_used, n_tokens]
+        up = build_lora_mm_id(up_exps, cur, selected_experts, up_exps_s); // [n_ff, n_expert_used_impl, n_tokens]
         cb(up, "ffn_moe_up", il);
 
         if (up_exps_s) {
@@ -1760,7 +1719,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         }
 
         if (gate_exps) {
-            cur = build_lora_mm_id(gate_exps, cur_expert_in, selected_experts, gate_exps_s); // [n_ff, n_expert_used, n_tokens]
+            cur = build_lora_mm_id(gate_exps, cur, selected_experts, gate_exps_s); // [n_ff, n_expert_used_impl, n_tokens]
             cb(cur, "ffn_moe_gate", il);
         } else {
             cur = up;
@@ -1869,16 +1828,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         cb(cur, "ffn_moe_weighted_swiglu", il);
     }
 
-    if (n_ff_down > 0 && n_ff_down < cur->ne[0]) {
-        cur = ggml_view_3d(ctx0, cur, n_ff_down, cur->ne[1], cur->ne[2], cur->nb[1], cur->nb[2], 0);
-        cur = ggml_cont(ctx0, cur);
-        if (cur->type != GGML_TYPE_F32 && cur->type != GGML_TYPE_F16) {
-            cur = ggml_cast(ctx0, cur, GGML_TYPE_F32);
-        }
-        cb(cur, "ffn_moe_down_in", il);
-    }
-
-    experts = build_lora_mm_id(down_exps, cur, selected_experts, down_exps_s); // [n_embd, n_expert_used, n_tokens]
+    experts = build_lora_mm_id(down_exps, cur, selected_experts, down_exps_s); // [n_embd, n_expert_used_impl, n_tokens]
     cb(experts, "ffn_moe_down", il);
 
     if (down_exps_s) {
@@ -1894,7 +1844,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     if (down_exps_s) {
         ggml_tensor * s = ggml_reshape_3d(ctx0, down_exps_s, 1, n_expert, 1);
         s = ggml_repeat_4d(ctx0, s, 1, n_expert, n_tokens, 1);
-        s = ggml_get_rows(ctx0, s, selected_experts); // [1, n_expert_used, n_tokens]
+        s = ggml_get_rows(ctx0, s, selected_experts); // [1, n_expert_used_impl, n_tokens]
         experts = ggml_mul(ctx0, experts, s);
         cb(experts, "ffn_moe_down_scaled", il);
     }
@@ -1908,28 +1858,28 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
 
     ggml_tensor * cur_experts[LLAMA_MAX_EXPERTS] = { nullptr };
 
-    assert(n_expert_used > 0);
+    assert(n_expert_used_impl > 0);
 
     // order the views before the adds
-    for (uint32_t i = 0; i < hparams.n_expert_used; ++i) {
-        cur_experts[i] = ggml_view_2d(ctx0, experts, n_moe_out, n_tokens, experts->nb[2], i*experts->nb[1]);
+    for (uint32_t i = 0; i < hparams.n_expert_used_impl; ++i) {
+        cur_experts[i] = ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], i*experts->nb[1]);
 
         ggml_build_forward_expand(gf, cur_experts[i]);
     }
 
     // aggregate experts
-    // note: here we explicitly use hparams.n_expert_used instead of n_expert_used
+    // note: here we explicitly use hparams.n_expert_used_impl instead of n_expert_used_impl
     //       to avoid potentially a large number of add nodes during warmup
     //       ref: https://github.com/ggml-org/llama.cpp/pull/14753
     ggml_tensor * moe_out = cur_experts[0];
 
-    for (uint32_t i = 1; i < hparams.n_expert_used; ++i) {
+    for (uint32_t i = 1; i < hparams.n_expert_used_impl; ++i) {
         moe_out = ggml_add(ctx0, moe_out, cur_experts[i]);
 
         ggml_build_forward_expand(gf, moe_out);
     }
 
-    if (hparams.n_expert_used == 1) {
+    if (hparams.n_expert_used_impl == 1) {
         // avoid returning a non-contiguous tensor
         moe_out = ggml_cont(ctx0, moe_out);
     }
@@ -2485,70 +2435,6 @@ ggml_tensor * llm_graph_context::build_attn(
     return cur;
 }
 
-ggml_tensor * llm_graph_context::build_attn(
-        llm_graph_input_attn_k_dsa * inp,
-        ggml_tensor * wo,
-        ggml_tensor * wo_b,
-        ggml_tensor * wo_s,
-        ggml_tensor * q_cur,
-        ggml_tensor * k_cur,
-        ggml_tensor * v_cur,
-        ggml_tensor * kq_b,
-        ggml_tensor * sinks,
-        ggml_tensor * v_mla,
-        ggml_tensor * top_k,
-            float     kq_scale,
-            int       il) const {
-    ggml_build_forward_expand(gf, q_cur);
-    ggml_build_forward_expand(gf, v_cur);
-    ggml_build_forward_expand(gf, k_cur);
-
-    const auto * mctx_cur = inp->mctx->get_mla();
-
-    {
-        const auto & k_idxs = inp->get_k_idxs_mla();
-        ggml_build_forward_expand(gf, mctx_cur->cpy_k(ctx0, k_cur, k_idxs, il));
-    }
-
-    ggml_tensor * kq_mask = inp->self_kq_mask_mla;
-
-    ggml_tensor * kq_mask_all = ggml_fill(ctx0, kq_mask, -INFINITY);
-
-    kq_mask_all = ggml_view_4d(ctx0, kq_mask_all, 1, kq_mask_all->ne[0], kq_mask_all->ne[1], kq_mask_all->ne[3],
-            kq_mask_all->nb[0], kq_mask_all->nb[1], kq_mask_all->nb[2], 0);
-
-    ggml_tensor * top_k_3d = ggml_view_4d(ctx0, top_k, top_k->ne[0], top_k->ne[1], top_k->ne[3], 1,
-            top_k->nb[1], top_k->nb[2], top_k->ne[3] * top_k->nb[3], 0);
-
-    ggml_tensor * zeros = ggml_new_tensor_4d(ctx0, GGML_TYPE_F32, 1, top_k_3d->ne[0], top_k_3d->ne[1], top_k_3d->ne[2]);
-    zeros = ggml_fill(ctx0, zeros, 0.0f);
-
-    ggml_tensor * kq_mask_top_k = ggml_set_rows(ctx0, kq_mask_all, zeros, top_k_3d);
-
-    kq_mask_top_k = ggml_view_4d(ctx0, kq_mask_top_k, kq_mask_top_k->ne[1], kq_mask_top_k->ne[2], 1, kq_mask_top_k->ne[3],
-            kq_mask_top_k->nb[2], kq_mask_top_k->nb[3], kq_mask_top_k->nb[3], 0);
-
-    kq_mask_top_k = ggml_add(ctx0, kq_mask_top_k, kq_mask);
-    ggml_tensor * kq_mask_attn = cparams.flash_attn ? ggml_cast(ctx0, kq_mask_top_k, GGML_TYPE_F16) : kq_mask_top_k;
-
-    ggml_tensor * q = q_cur;
-    ggml_tensor * k = mctx_cur->get_k(ctx0, il);
-    ggml_tensor * v = ggml_view_4d(ctx0, k, v_cur->ne[0], k->ne[1], k->ne[2], k->ne[3], k->nb[1], k->nb[2], k->nb[3], 0);
-
-    ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask_attn, sinks, v_mla, kq_scale, il);
-    cb(cur, "kqv_out", il);
-
-    if (wo) {
-        cur = build_lora_mm(wo, cur, wo_s);
-    }
-
-    if (wo_b) {
-        cur = ggml_add(ctx0, cur, wo_b);
-    }
-
-    return cur;
-}
-
 static std::unique_ptr<llm_graph_input_attn_k> build_attn_inp_k_impl(
            ggml_context * ctx0,
      const llama_ubatch & ubatch,
@@ -2576,30 +2462,6 @@ llm_graph_input_attn_k * llm_graph_context::build_attn_inp_k() const {
     auto inp = build_attn_inp_k_impl(ctx0, ubatch, hparams, cparams, mctx_cur);
 
     return (llm_graph_input_attn_k *) res->add_input(std::move(inp));
-}
-
-llm_graph_input_attn_k_dsa * llm_graph_context::build_attn_inp_k_dsa() const {
-    const auto * mctx_cur = static_cast<const llama_kv_cache_dsa_context *>(mctx);
-
-    auto inp = std::make_unique<llm_graph_input_attn_k_dsa>(hparams, cparams, mctx_cur);
-
-    {
-        inp->self_k_idxs_mla = mctx_cur->get_mla()->build_input_k_idxs(ctx0, ubatch);
-
-        inp->self_kq_mask_mla = build_attn_inp_kq_mask(ctx0, mctx_cur->get_mla(), ubatch, cparams);
-        inp->self_kq_mask_mla_cnv = cparams.flash_attn ? ggml_cast(ctx0, inp->self_kq_mask_mla, GGML_TYPE_F16) : inp->self_kq_mask_mla;
-    }
-
-    {
-        inp->self_k_idxs_lid = mctx_cur->get_lid()->build_input_k_idxs(ctx0, ubatch);
-
-        inp->self_kq_mask_lid = build_attn_inp_kq_mask(ctx0, mctx_cur->get_lid(), ubatch, cparams);
-        inp->self_kq_mask_lid_cnv = cparams.flash_attn ? ggml_cast(ctx0, inp->self_kq_mask_lid, GGML_TYPE_F16) : inp->self_kq_mask_lid;
-
-        inp->self_k_rot_lid = mctx_cur->get_lid()->build_input_k_rot(ctx0);
-    }
-
-    return (llm_graph_input_attn_k_dsa *) res->add_input(std::move(inp));
 }
 
 ggml_tensor * llm_graph_context::build_attn(

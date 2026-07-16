@@ -4,7 +4,7 @@ void llama_model_jina_bert_v2::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS,    hparams.f_norm_eps);
     hparams.f_max_alibi_bias = 8.0f;
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 4:  type = LLM_TYPE_33M;  break; // jina-embeddings-small
         case 12: type = LLM_TYPE_137M; break; // jina-embeddings-base
         default: type = LLM_TYPE_UNKNOWN;
@@ -22,7 +22,7 @@ void llama_model_jina_bert_v2::load_arch_tensors(llama_model_loader & ml) {
 
     cls   = create_tensor(tn(LLM_TENSOR_CLS, "weight"), {n_embd, 1}, TENSOR_NOT_REQUIRED);
     cls_b = create_tensor(tn(LLM_TENSOR_CLS, "bias"),   {1},         TENSOR_NOT_REQUIRED);
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i]; // JinaBertLayer
 
         create_tensor_qkv(layer, i, n_embd, n_embd, n_embd_gqa, n_embd_gqa, 0);

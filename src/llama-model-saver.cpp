@@ -79,7 +79,7 @@ void llama_model_saver::add_kv(const enum llm_kv key, const char value) {
 template <typename Container>
 void llama_model_saver::add_kv(const enum llm_kv key, const Container & value, const bool per_layer) {
     GGML_ASSERT(model != nullptr || !per_layer);
-    const size_t n_values = per_layer ? size_t(model->hparams.n_layer) : value.size();
+    const size_t n_values = per_layer ? size_t(model->hparams.n_layer_all) : value.size();
     GGML_ASSERT(n_values <= value.size());
 
     if (n_values == 0) {
@@ -206,10 +206,10 @@ void llama_model_saver::add_kv_from_model() {
     if (hparams.n_embd_out_impl > 0) {
         add_kv(LLM_KV_EMBEDDING_LENGTH_OUT,          hparams.n_embd_out_impl);
     }
-    add_kv(LLM_KV_BLOCK_COUNT,                       hparams.n_layer);
+    add_kv(LLM_KV_BLOCK_COUNT,                       hparams.n_layer_all);
     add_kv(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead);
     add_kv(LLM_KV_FEED_FORWARD_LENGTH,               hparams.n_ff_arr, true);
-    add_kv(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+    add_kv(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp_impl);
     add_kv(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp);
     add_kv(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_chexp);
     add_kv(LLM_KV_SWIGLU_CLAMP_EXP,                  hparams.swiglu_clamp_exp);
@@ -217,7 +217,7 @@ void llama_model_saver::add_kv_from_model() {
     add_kv(LLM_KV_USE_PARALLEL_RESIDUAL,             hparams.use_par_res);
     // add_kv(LLM_KV_TENSOR_DATA_LAYOUT,                ???);
     add_kv(LLM_KV_EXPERT_COUNT,                      hparams.n_expert);
-    add_kv(LLM_KV_EXPERT_USED_COUNT,                 hparams.n_expert_used);
+    add_kv(LLM_KV_EXPERT_USED_COUNT,                 hparams.n_expert_used_impl);
     add_kv(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared);
     add_kv(LLM_KV_EXPERT_GROUP_COUNT,                hparams.n_expert_groups);
     add_kv(LLM_KV_EXPERT_GROUP_USED_COUNT,           hparams.n_group_used);
@@ -354,10 +354,10 @@ void llama_model_saver::add_kv_from_model() {
     // add_kv(LLM_KV_ADAPTER_ALORA_INVOCATION_TOKENS,   ???);
 
     add_kv(LLM_KV_POSNET_EMBEDDING_LENGTH,           hparams.posnet.n_embd);
-    add_kv(LLM_KV_POSNET_BLOCK_COUNT,                hparams.posnet.n_layer);
+    add_kv(LLM_KV_POSNET_BLOCK_COUNT,                hparams.posnet.n_layer_all);
 
     add_kv(LLM_KV_CONVNEXT_EMBEDDING_LENGTH,         hparams.convnext.n_embd);
-    add_kv(LLM_KV_CONVNEXT_BLOCK_COUNT,              hparams.convnext.n_layer);
+    add_kv(LLM_KV_CONVNEXT_BLOCK_COUNT,              hparams.convnext.n_layer_all);
 
     add_kv(LLM_KV_CLASSIFIER_OUTPUT_LABELS,          model->classifier_labels);
 

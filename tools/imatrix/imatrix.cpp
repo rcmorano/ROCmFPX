@@ -264,7 +264,7 @@ bool IMatrixCollector::collect_imatrix(struct ggml_tensor * t, bool ask, void * 
     // ref: https://github.com/ggml-org/llama.cpp/pull/6387
     if (t->op == GGML_OP_MUL_MAT_ID) {
         //   ids  -> [n_experts_used, n_tokens]
-        //   src1 -> [cols, n_expert_used, n_tokens]
+        //   src1 -> [cols, n_expert_used_impl, n_tokens]
         const ggml_tensor * ids = t->src[2];
         const int64_t n_as = src0->ne[2];
         const int64_t n_ids = ids->ne[0];

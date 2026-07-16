@@ -10,7 +10,7 @@ void llama_model_arwkv7::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_GATE_LORA_RANK,               hparams.n_lora_gate, false);
     ml.get_key(LLM_KV_TOKEN_SHIFT_COUNT,                      hparams.token_shift_count, false);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 12:
             switch (hparams.n_embd) {
                 case 768: type = LLM_TYPE_190M; break;
@@ -58,7 +58,7 @@ void llama_model_arwkv7::load_arch_tensors(llama_model_loader &) {
     const int n_lora_gate = hparams.n_lora_gate;
     const int attn_hidden_size = n_embd;
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm   = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -134,7 +134,7 @@ llama_model_arwkv7::graph::graph(const llama_model & model, const llm_graph_para
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const llama_layer * layer = &model.layers[il];
         inpL = ggml_reshape_3d(ctx0, inpL, n_embd, n_seq_tokens, n_seqs);
 
@@ -161,7 +161,7 @@ llama_model_arwkv7::graph::graph(const llama_model & model, const llm_graph_para
         cur     = ggml_reshape_2d(ctx0, cur,     n_embd, n_tokens);
         ffn_inp = ggml_reshape_2d(ctx0, ffn_inp, n_embd, n_tokens);
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur     = ggml_get_rows(ctx0, cur,     inp_out_ids);
             ffn_inp = ggml_get_rows(ctx0, ffn_inp, inp_out_ids);
         }

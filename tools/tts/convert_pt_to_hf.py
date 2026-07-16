@@ -163,14 +163,14 @@ config = {
     "group_norm_epsilon": 1e-6,
     "group_norm_groups": 32,
     "max_position_embeddings": 8192, # ?
-    "n_layer": 12,
+    "n_layer_all": 12,
     "posnet": {
         "n_embd": 768,
-        "n_layer": 6
+        "n_layer_all": 6
     },
     "convnext": {
         "n_embd": 768,
-        "n_layer": 12
+        "n_layer_all": 12
     },
 }
 

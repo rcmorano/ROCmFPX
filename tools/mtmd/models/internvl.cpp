@@ -12,7 +12,7 @@ ggml_cgraph * clip_graph_internvl::build() {
 
     // The larger models use a different ViT, which uses RMS norm instead of layer norm
     // ref: https://github.com/ggml-org/llama.cpp/pull/13443#issuecomment-2869786188
-    norm_type norm_t = (hparams.n_embd == 3200 && hparams.n_layer == 45)
+    norm_type norm_t = (hparams.n_embd == 3200 && hparams.n_layer_all == 45)
         ? NORM_TYPE_RMS // 6B ViT (Used by InternVL 2.5/3 - 26B, 38B, 78B)
         : NORM_TYPE_NORMAL; // 300M ViT (Used by all smaller InternVL models)
 

@@ -3,7 +3,7 @@
 void llama_model_plamo::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 40: type = LLM_TYPE_13B; break;
         default: type = LLM_TYPE_UNKNOWN;
    }
@@ -18,7 +18,7 @@ void llama_model_plamo::load_arch_tensors(llama_model_loader &) {
     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, 0);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -54,7 +54,7 @@ llama_model_plamo::graph::graph(const llama_model & model, const llm_graph_param
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         // norm
         cur = build_norm(inpL,
                 model.layers[il].attn_norm, NULL,
@@ -89,7 +89,7 @@ llama_model_plamo::graph::graph(const llama_model & model, const llm_graph_param
                     model.layers[il].wo, NULL, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur    = ggml_get_rows(ctx0,    cur, inp_out_ids);
             sa_inp = ggml_get_rows(ctx0, sa_inp, inp_out_ids);
             inpL   = ggml_get_rows(ctx0,   inpL, inp_out_ids);

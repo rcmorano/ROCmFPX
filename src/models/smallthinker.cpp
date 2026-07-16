@@ -15,14 +15,14 @@ void llama_model_smallthinker::load_arch_hparams(llama_model_loader & ml) {
         ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA, hparams.rope_freq_base_train_swa, false);
     } else {
         hparams.swa_type             = LLAMA_SWA_TYPE_NONE;
-        hparams.n_no_rope_layer_step = hparams.n_layer;
+        hparams.n_no_rope_layer_step = hparams.n_layer_all;
     }
 
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp, false);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp_impl, false);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
     ml.get_key(LLM_KV_EXPERT_GATING_FUNC,          hparams.expert_gating_func, false);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 32: type = LLM_TYPE_4B;  break;
         case 52: type = LLM_TYPE_20B; break;
         default: type = LLM_TYPE_UNKNOWN;
@@ -43,7 +43,7 @@ void llama_model_smallthinker::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), { n_embd }, 0);
@@ -54,14 +54,14 @@ void llama_model_smallthinker::load_arch_tensors(llama_model_loader &) {
         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), { n_embd }, 0);
 
         GGML_ASSERT(n_expert > 0 && "n_expert must be > 0 for SMALLTHINKER");
-        GGML_ASSERT(n_expert_used > 0 && "n_expert_used must be > 0 for SMALLTHINKER");
+        GGML_ASSERT(n_expert_used_impl > 0 && "n_expert_used_impl must be > 0 for SMALLTHINKER");
 
         // MoE branch
-        const int64_t n_ff_exp = hparams.n_ff_exp;
+        const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl;
         layer.ffn_gate_inp  = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), { n_embd, n_expert }, 0);
-        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), { n_embd, n_ff_exp, n_expert }, 0);
-        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), { n_ff_exp, n_embd, n_expert }, 0);
-        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i), { n_embd, n_ff_exp, n_expert }, 0);
+        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), { n_embd, n_ff_exp_impl, n_expert }, 0);
+        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), { n_ff_exp_impl, n_embd, n_expert }, 0);
+        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS, "weight", i), { n_embd, n_ff_exp_impl, n_expert }, 0);
     }
 }
 
@@ -98,14 +98,14 @@ llama_model_smallthinker::graph<iswa>::graph(const llama_model & model, const ll
     }
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const float freq_base_l  = model.get_rope_freq_base (cparams, il);
         const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
 
         ggml_tensor * inpSA  = inpL;
 
         // This overlaps with SWA layers in current models, so get_rope_freq_base/scale may be superfluous
-        const bool use_rope = hparams.n_no_rope_layer_step == n_layer ||
+        const bool use_rope = hparams.n_no_rope_layer_step == n_layer_all ||
                               il % hparams.n_no_rope_layer_step != 0;
 
         ggml_tensor * probs = build_lora_mm(model.layers[il].ffn_gate_inp, inpL);  // [n_expert, n_tokens]
@@ -135,7 +135,7 @@ llama_model_smallthinker::graph<iswa>::graph(const llama_model & model, const ll
                     model.layers[il].wo, model.layers[il].wo_b, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f / sqrtf(float(n_embd_head)), il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
             probs = ggml_get_rows(ctx0, probs, inp_out_ids);
@@ -154,7 +154,7 @@ llama_model_smallthinker::graph<iswa>::graph(const llama_model & model, const ll
                     model.layers[il].ffn_gate_exps,
                     model.layers[il].ffn_down_exps,
                     nullptr,
-                    n_expert, n_expert_used,
+                    n_expert, n_expert_used_impl,
                     LLM_FFN_RELU, true,
                     hparams.expert_weights_scale,
                     static_cast<llama_expert_gating_func_type>(hparams.expert_gating_func),

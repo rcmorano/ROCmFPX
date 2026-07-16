@@ -47,7 +47,7 @@ class GGMLFType(IntEnum):
 class Hyperparameters:
     def __init__(self):
         self.n_vocab = self.n_embd = self.n_mult = self.n_head = 0
-        self.n_layer = self.n_rot = self.n_ff = 0
+        self.n_layer_all = self.n_rot = self.n_ff = 0
         self.ftype = GGMLFType.ALL_F32
 
     def set_n_ff(self, model):
@@ -62,7 +62,7 @@ class Hyperparameters:
             self.n_embd,
             self.n_mult,
             self.n_head,
-            self.n_layer,
+            self.n_layer_all,
             self.n_rot,
             ftype,
         ) = struct.unpack('<7I', data[offset:offset + (4 * 7)])
@@ -73,7 +73,7 @@ class Hyperparameters:
         return 4 * 7
 
     def __str__(self):
-        return f'<Hyperparameters: n_vocab={self.n_vocab}, n_embd={self.n_embd}, n_mult={self.n_mult}, n_head={self.n_head}, n_layer={self.n_layer}, n_rot={self.n_rot}, n_ff={self.n_ff}, ftype={self.ftype.name}>'
+        return f'<Hyperparameters: n_vocab={self.n_vocab}, n_embd={self.n_embd}, n_mult={self.n_mult}, n_head={self.n_head}, n_layer_all={self.n_layer_all}, n_rot={self.n_rot}, n_ff={self.n_ff}, ftype={self.ftype.name}>'
 
 
 class Vocab:
@@ -223,7 +223,7 @@ class GGMLToGGUF:
                 assert n_kv_head is not None, "Couldn't determine n_kv_head from GQA param"
                 logger.info(f'- Guessed n_kv_head = {n_kv_head} based on GQA {cfg.gqa}')
         self.n_kv_head = n_kv_head
-        self.name_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.LLAMA, ggml_model.hyperparameters.n_layer)
+        self.name_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.LLAMA, ggml_model.hyperparameters.n_layer_all)
 
     def save(self):
         logger.info('* Preparing to save GGUF file')
@@ -264,11 +264,11 @@ class GGMLToGGUF:
         if self.params_override is not None:
             po = self.params_override
             assert po.n_embd == hp.n_embd, 'Model hyperparams mismatch'
-            assert po.n_layer == hp.n_layer, 'Model hyperparams mismatch'
+            assert po.n_layer_all == hp.n_layer_all, 'Model hyperparams mismatch'
             assert po.n_head == hp.n_head, 'Model hyperparams mismatch'
             gguf_writer.add_context_length      (po.n_ctx)
             gguf_writer.add_embedding_length    (po.n_embd)
-            gguf_writer.add_block_count         (po.n_layer)
+            gguf_writer.add_block_count         (po.n_layer_all)
             gguf_writer.add_feed_forward_length (po.n_ff)
             gguf_writer.add_rope_dimension_count(po.n_embd // po.n_head)
             gguf_writer.add_head_count          (po.n_head)
@@ -277,7 +277,7 @@ class GGMLToGGUF:
             return
         gguf_writer.add_context_length(cfg.context_length)
         gguf_writer.add_embedding_length(hp.n_embd)
-        gguf_writer.add_block_count(hp.n_layer)
+        gguf_writer.add_block_count(hp.n_layer_all)
         gguf_writer.add_feed_forward_length(hp.n_ff)
         gguf_writer.add_rope_dimension_count(hp.n_embd // hp.n_head)
         gguf_writer.add_head_count(hp.n_head)

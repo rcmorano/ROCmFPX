@@ -27,7 +27,7 @@ int main() {
     fprintf(stderr, "n_embd:        %u\n", model.n_embd);
     fprintf(stderr, "n_ff:          %u\n", model.n_ff);
     fprintf(stderr, "n_vocab:       %u\n", model.n_vocab);
-    fprintf(stderr, "n_layer:       %u\n", model.n_layer);
+    fprintf(stderr, "n_layer_all:       %u\n", model.n_layer_all);
     fprintf(stderr, "n_head:        %u\n", model.n_head);
     fprintf(stderr, "n_head_kv:     %u\n", model.n_head_kv);
     fprintf(stderr, "n_expert:      %u\n", model.n_expert);
@@ -39,7 +39,7 @@ int main() {
     TEST_ASSERT(model.architecture == "qwen3", "expected architecture 'qwen3'");
 
     // Verify key dimensions (Qwen3-0.6B)
-    TEST_ASSERT(model.n_layer == 28, "expected n_layer == 28");
+    TEST_ASSERT(model.n_layer_all == 28, "expected n_layer_all == 28");
     TEST_ASSERT(model.n_embd == 1024, "expected n_embd == 1024");
     TEST_ASSERT(model.n_head == 16, "expected n_head == 16");
     TEST_ASSERT(model.n_head_kv == 8, "expected n_head_kv == 8");
@@ -94,7 +94,7 @@ int main() {
     fprintf(stderr, "n_embd:        %u\n", model3.n_embd);
     fprintf(stderr, "n_ff:          %u\n", model3.n_ff);
     fprintf(stderr, "n_vocab:       %u\n", model3.n_vocab);
-    fprintf(stderr, "n_layer:       %u\n", model3.n_layer);
+    fprintf(stderr, "n_layer_all:       %u\n", model3.n_layer_all);
     fprintf(stderr, "n_head:        %u\n", model3.n_head);
     fprintf(stderr, "n_head_kv:     %u\n", model3.n_head_kv);
     fprintf(stderr, "n_expert:      %u\n", model3.n_expert);
@@ -106,7 +106,7 @@ int main() {
     TEST_ASSERT(model3.architecture == "glm4moe", "expected architecture 'glm4moe'");
 
     // Verify key dimensions (GLM-4.6V)
-    TEST_ASSERT(model3.n_layer == 46, "expected n_layer == 46");
+    TEST_ASSERT(model3.n_layer_all == 46, "expected n_layer_all == 46");
     TEST_ASSERT(model3.n_embd == 4096, "expected n_embd == 4096");
     TEST_ASSERT(model3.n_head == 96, "expected n_head == 96");
     TEST_ASSERT(model3.n_head_kv == 8, "expected n_head_kv == 8");
@@ -128,7 +128,7 @@ int main() {
     fprintf(stderr, "n_embd:        %u\n", model4.n_embd);
     fprintf(stderr, "n_ff:          %u\n", model4.n_ff);
     fprintf(stderr, "n_vocab:       %u\n", model4.n_vocab);
-    fprintf(stderr, "n_layer:       %u\n", model4.n_layer);
+    fprintf(stderr, "n_layer_all:       %u\n", model4.n_layer_all);
     fprintf(stderr, "n_head:        %u\n", model4.n_head);
     fprintf(stderr, "n_head_kv:     %u\n", model4.n_head_kv);
     fprintf(stderr, "n_expert:      %u\n", model4.n_expert);
@@ -138,7 +138,7 @@ int main() {
 
     TEST_ASSERT(model4.architecture == "step35", "expected architecture 'step35'");
 
-    TEST_ASSERT(model4.n_layer == 45, "expected n_layer == 45");
+    TEST_ASSERT(model4.n_layer_all == 45, "expected n_layer_all == 45");
     TEST_ASSERT(model4.n_embd == 4096, "expected n_embd == 4096");
     TEST_ASSERT(model4.n_ff == 11264, "expected n_ff == 11264");
     TEST_ASSERT(model4.n_head == 64, "expected n_head == 64 (first element of per-layer array)");

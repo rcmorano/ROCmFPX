@@ -19,7 +19,7 @@ void llama_model_granite_hybrid::load_arch_hparams(llama_model_loader & ml) {
     hparams.rope_finetuned = rope_finetuned;
 
     // A layer is recurrent IFF the n_head_kv value is set to 0
-    for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+    for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
         hparams.recurrent_layer_arr[i] = hparams.n_head_kv(i) == 0;
     }
 
@@ -65,7 +65,7 @@ void llama_model_granite_hybrid::load_arch_tensors(llama_model_loader &) {
         }
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         // norm
@@ -151,7 +151,7 @@ llama_model_granite_hybrid::graph::graph(const llama_model & model, const llm_gr
         inp_pos = build_inp_pos();
     }
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         struct ggml_tensor * inpSA = inpL;
 
         // norm
@@ -166,7 +166,7 @@ llama_model_granite_hybrid::graph::graph(const llama_model & model, const llm_gr
             cur = build_attention_layer(cur, inp_pos, inp->get_attn(), model, n_embd_head, il);
         }
 
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
@@ -264,7 +264,7 @@ ggml_tensor * llama_model_granite_hybrid::graph::build_layer_ffn(ggml_tensor *  
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 nullptr,
-                n_expert, n_expert_used,
+                n_expert, n_expert_used_impl,
                 LLM_FFN_SILU, true,
                 hparams.expert_weights_scale,
                 LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,

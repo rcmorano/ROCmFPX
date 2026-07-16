@@ -64,7 +64,7 @@ ggml_cgraph * clip_graph_gemma4a::build() {
     ggml_set_input(kq_mask);
 
     // 3. Conformer Blocks
-    for (int il = 0; il < hparams.n_layer; il++) {
+    for (int il = 0; il < hparams.n_layer_all; il++) {
         const auto & layer = model.layers[il];
         auto * residual = cur;
 

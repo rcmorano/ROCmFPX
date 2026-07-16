@@ -27,7 +27,7 @@ struct clip_graph {
     const int n_head;
     const int n_head_kv;
     const int d_head;
-    const int n_layer;
+    const int n_layer_all;
     const int n_mmproj_embd;
     const float eps;
     float kq_scale; // TODO: maybe move this to hparams

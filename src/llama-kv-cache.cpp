@@ -194,7 +194,7 @@ llama_kv_cache::llama_kv_cache(
                 protect_turbo_boundary_v ? " V" : "");
     }
 
-    for (uint32_t il = 0; il < hparams.n_layer; il++) {
+    for (uint32_t il = 0; il < hparams.n_layer_all; il++) {
         if (!hparams.has_kv(il)) {
             LLAMA_LOG_DEBUG("%s: layer %3d: does not have KV cache\n", __func__, il);
             continue;
@@ -240,7 +240,7 @@ llama_kv_cache::llama_kv_cache(
         }
 
         const bool is_turbo_boundary = turbo_boundary_layers > 0 &&
-                (il < turbo_boundary_layers || il + turbo_boundary_layers >= hparams.n_layer);
+                (il < turbo_boundary_layers || il + turbo_boundary_layers >= hparams.n_layer_all);
         const ggml_type type_k_layer = is_turbo_boundary && type_k_turbo ? GGML_TYPE_Q8_0 : type_k;
         const ggml_type type_v_layer = is_turbo_boundary && protect_turbo_boundary_v ? GGML_TYPE_Q8_0 : type_v;
 
@@ -284,7 +284,7 @@ llama_kv_cache::llama_kv_cache(
     if (reuse) {
         LLAMA_LOG_DEBUG("%s: reusing layers:\n", __func__);
 
-        for (uint32_t il = 0; il < hparams.n_layer; il++) {
+        for (uint32_t il = 0; il < hparams.n_layer_all; il++) {
             const int32_t il_reuse = reuse(il);
 
             if (il_reuse < 0) {
@@ -2056,10 +2056,10 @@ void llama_kv_cache::state_write_data(llama_io_write_i & io, const cell_ranges_t
     const auto & cells = v_cells[cr.strm];
 
     const uint32_t v_trans = this->v_trans ? 1 : 0;
-    const uint32_t n_layer = layers.size();
+    const uint32_t n_layer_all = layers.size();
 
     io.write(&v_trans, sizeof(v_trans));
-    io.write(&n_layer, sizeof(n_layer));
+    io.write(&n_layer_all, sizeof(n_layer_all));
 
     // Iterate and write all the keys first, each row is a cell
     // Get whole range at a time
@@ -2274,13 +2274,13 @@ bool llama_kv_cache::state_read_data(llama_io_read_i & io, uint32_t strm, uint32
     auto & cells = v_cells[strm];
 
     uint32_t v_trans;
-    uint32_t n_layer;
+    uint32_t n_layer_all;
 
     io.read(&v_trans, sizeof(v_trans));
-    io.read(&n_layer, sizeof(n_layer));
+    io.read(&n_layer_all, sizeof(n_layer_all));
 
-    if (n_layer != layers.size()) {
-        LLAMA_LOG_ERROR("%s: mismatched layer count (%u instead of %u)\n", __func__, n_layer, (uint32_t) layers.size());
+    if (n_layer_all != layers.size()) {
+        LLAMA_LOG_ERROR("%s: mismatched layer count (%u instead of %u)\n", __func__, n_layer_all, (uint32_t) layers.size());
         return false;
     }
 

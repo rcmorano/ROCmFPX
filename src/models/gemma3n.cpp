@@ -13,7 +13,7 @@ void llama_model_gemma3n::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 30: type = LLM_TYPE_E2B; break;
         case 35: type = LLM_TYPE_E4B; break;
         default: type = LLM_TYPE_UNKNOWN;
@@ -38,13 +38,13 @@ void llama_model_gemma3n::load_arch_tensors(llama_model_loader &) {
     altup_proj        = create_tensor(tn(LLM_TENSOR_ALTUP_PROJ,        "weight"), {n_embd, n_embd, n_altup - 1}, 0);
     altup_unembd_proj = create_tensor(tn(LLM_TENSOR_ALTUP_UNEMBD_PROJ, "weight"), {n_embd, n_embd, n_altup - 1}, 0);
 
-    per_layer_tok_embd   = create_tensor(tn(LLM_TENSOR_PER_LAYER_TOKEN_EMBD, "weight"), {n_embd_altup * n_layer, n_vocab}, 0);
-    per_layer_model_proj = create_tensor(tn(LLM_TENSOR_PER_LAYER_MODEL_PROJ, "weight", 0), {n_embd, n_embd_altup * n_layer}, 0);
+    per_layer_tok_embd   = create_tensor(tn(LLM_TENSOR_PER_LAYER_TOKEN_EMBD, "weight"), {n_embd_altup * n_layer_all, n_vocab}, 0);
+    per_layer_model_proj = create_tensor(tn(LLM_TENSOR_PER_LAYER_MODEL_PROJ, "weight", 0), {n_embd, n_embd_altup * n_layer_all}, 0);
     per_layer_proj_norm  = create_tensor(tn(LLM_TENSOR_PER_LAYER_PROJ_NORM,  "weight", 0), {n_embd_altup}, 0);
 
     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
@@ -113,7 +113,7 @@ llama_model_gemma3n::graph::graph(const llama_model & model, const llm_graph_par
     ggml_tensor * inp_per_layer = build_inp_per_layer();
     ggml_build_forward_expand(gf, inp_per_layer);
 
-    // inp_per_layer now has shape: [n_embd_altup, n_tokens, n_layer]
+    // inp_per_layer now has shape: [n_embd_altup, n_tokens, n_layer_all]
     inp_per_layer = project_per_layer_inputs(inpL, inp_per_layer);
 
     // inpL now has only 1 altup, project it to the rest of the altups
@@ -130,7 +130,7 @@ llama_model_gemma3n::graph::graph(const llama_model & model, const llm_graph_par
     }
     // inpL now has shape: [n_embd, n_tokens, n_altup]
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         // this block is made to be closely resemble Gemma3p5DecoderLayer on python code
         const float freq_base_l  = model.get_rope_freq_base(cparams, il);
         const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
@@ -315,7 +315,7 @@ ggml_tensor * llama_model_gemma3n::graph::calc_magnitude(ggml_tensor * x) {
 }
 
 // equivalent to get_per_layer_inputs() in python code
-// output shape: [n_embd_altup, n_layer, n_tokens]
+// output shape: [n_embd_altup, n_layer_all, n_tokens]
 ggml_tensor * llama_model_gemma3n::graph::build_inp_per_layer() {
     auto inp = std::make_unique<llm_graph_input_embd>(n_embd);
     ggml_tensor * inp_per_layer;
@@ -325,30 +325,30 @@ ggml_tensor * llama_model_gemma3n::graph::build_inp_per_layer() {
         ggml_set_input(inp->tokens);
         res->t_inp_tokens = inp->tokens;
         inp_per_layer = ggml_get_rows  (ctx0, model.per_layer_tok_embd, inp->tokens);
-        inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
+        inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer_all, n_tokens);
         inp_per_layer = ggml_scale     (ctx0, inp_per_layer, tok_embd_scale);
         cb(inp_per_layer, "inp_per_layer_selected", -1);
         res->add_input(std::move(inp));
     } else {
         // Multimodal embedding path: use padding token (ID=0) embedding
         // TODO: verify if this is the correct behavior in transformers implementation
-        const int64_t embd_size = model.per_layer_tok_embd->ne[0];  // n_embd_altup * n_layer
+        const int64_t embd_size = model.per_layer_tok_embd->ne[0];  // n_embd_altup * n_layer_all
 
         // Extract and dequantize padding token embedding (row 0)
         ggml_tensor * padding = ggml_view_1d(ctx0, model.per_layer_tok_embd, embd_size, 0);
         inp_per_layer = ggml_cast (ctx0, padding, GGML_TYPE_F32);
         inp_per_layer = ggml_scale(ctx0, inp_per_layer, tok_embd_scale);
 
-        // Reshape to [n_embd_altup, n_layer, 1]
-        inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, 1);
+        // Reshape to [n_embd_altup, n_layer_all, 1]
+        inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer_all, 1);
         cb(inp_per_layer, "inp_per_layer_multimodal", -1);
     }
     return inp_per_layer;
 }
 
 // equivalent to project_per_layer_inputs() in python code
-// this calculates the per-layer inputs, so the final tensor shape will have n_layer as the last dim
-// output shape: [n_embd_altup, n_tokens, n_layer]
+// this calculates the per-layer inputs, so the final tensor shape will have n_layer_all as the last dim
+// output shape: [n_embd_altup, n_tokens, n_layer_all]
 ggml_tensor * llama_model_gemma3n::graph::project_per_layer_inputs(ggml_tensor * inp_batch, ggml_tensor * inp_per_layer) {
     const float per_layer_projection_scale = 1.0f / sqrtf((float) n_embd);
     const float per_layer_input_scale      = 1.0f / sqrtf(2.0f);
@@ -356,7 +356,7 @@ ggml_tensor * llama_model_gemma3n::graph::project_per_layer_inputs(ggml_tensor *
     ggml_tensor * per_layer_proj;
     per_layer_proj = ggml_mul_mat   (ctx0, model.per_layer_model_proj, inp_batch);
     per_layer_proj = ggml_scale     (ctx0, per_layer_proj, per_layer_projection_scale);
-    per_layer_proj = ggml_reshape_3d(ctx0, per_layer_proj, n_embd_altup, n_layer, n_tokens);
+    per_layer_proj = ggml_reshape_3d(ctx0, per_layer_proj, n_embd_altup, n_layer_all, n_tokens);
 
     per_layer_proj = build_norm(per_layer_proj, model.per_layer_proj_norm, NULL, LLM_NORM_RMS, -1);
     cb(per_layer_proj, "per_layer_proj", -1);
@@ -365,7 +365,7 @@ ggml_tensor * llama_model_gemma3n::graph::project_per_layer_inputs(ggml_tensor *
     inp_per_layer = ggml_scale(ctx0, inp_per_layer, per_layer_input_scale);
     cb(inp_per_layer, "inp_per_layer", -1);
 
-    // permute to shape: [n_embd_altup, n_tokens, n_layer]
+    // permute to shape: [n_embd_altup, n_tokens, n_layer_all]
     inp_per_layer = ggml_cont(ctx0, ggml_permute(ctx0, inp_per_layer, 0, 2, 1, 3));
     return inp_per_layer;
 }

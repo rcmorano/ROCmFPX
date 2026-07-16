@@ -14,20 +14,20 @@ void llama_model_qwen35::load_arch_hparams(llama_model_loader & ml) {
 
     // NextN/MTP (Qwen3.5/3.6): extra decoder block appended beyond the main stack
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer_all && "nextn_predict_layers must be < n_layer_all");
 
     // Mark recurrent layers (linear attention layers). MTP layers are dense
     // attention-only and must be flagged non-recurrent.
     {
-        const uint32_t n_main = hparams.n_layer - hparams.nextn_predict_layers;
+        const uint32_t n_main = hparams.n_layer_all - hparams.nextn_predict_layers;
         uint32_t full_attn_interval = 4;
         ml.get_key(LLM_KV_FULL_ATTENTION_INTERVAL, full_attn_interval, false);
-        for (uint32_t i = 0; i < hparams.n_layer; ++i) {
+        for (uint32_t i = 0; i < hparams.n_layer_all; ++i) {
             hparams.recurrent_layer_arr[i] = (i < n_main) && ((i + 1) % full_attn_interval != 0);
         }
     }
 
-    switch (hparams.n_layer - hparams.nextn_predict_layers) {
+    switch (hparams.n_layer_all - hparams.nextn_predict_layers) {
         case 24: type = hparams.n_embd == 1024 ? LLM_TYPE_0_8B : LLM_TYPE_2B; break;
         case 32: type = hparams.n_embd == 2560 ? LLM_TYPE_4B : LLM_TYPE_9B; break;
         case 64: type = LLM_TYPE_27B; break;
@@ -38,7 +38,7 @@ void llama_model_qwen35::load_arch_hparams(llama_model_loader & ml) {
 void llama_model_qwen35::load_arch_tensors(llama_model_loader & ml) {
     LLAMA_LOAD_LOCALS;
 
-    const uint32_t n_main = n_layer - hparams.nextn_predict_layers;
+    const uint32_t n_main = n_layer_all - hparams.nextn_predict_layers;
     const bool mtp_only   = (hparams.nextn_predict_layers > 0) &&
                             (ml.get_weight("blk.0.attn_norm.weight") == nullptr);
     const int trunk_flags = mtp_only ? TENSOR_NOT_REQUIRED : 0;
@@ -124,7 +124,7 @@ void llama_model_qwen35::load_arch_tensors(llama_model_loader & ml) {
     for (int i = 0; i < (int) n_main; ++i) {
         load_block_trunk(i, trunk_flags);
     }
-    for (int i = (int) n_main; i < n_layer; ++i) {
+    for (int i = (int) n_main; i < n_layer_all; ++i) {
         load_block_mtp(i);
     }
 }
@@ -158,7 +158,7 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     // MTP/NextN layers are loaded as extra decoder blocks but not executed in the main pass.
-    const int n_transformer_layers = n_layer - (int) hparams.nextn_predict_layers;
+    const int n_transformer_layers = n_layer_all - (int) hparams.nextn_predict_layers;
     for (int il = 0; il < n_transformer_layers; ++il) {
         res->t_layer_inp[il] = inpL;
 
@@ -499,7 +499,7 @@ llama_model_qwen35::graph_mtp::graph_mtp(const llama_model & model, const llm_gr
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
 
     // The MTP block lives at the source file's original layer index.
-    const int il = (int) hparams.n_layer - (int) hparams.nextn_predict_layers;
+    const int il = (int) hparams.n_layer_all - (int) hparams.nextn_predict_layers;
     const auto & layer = model.layers[il];
 
     GGML_ASSERT(layer.nextn.eh_proj && "MTP block missing nextn.eh_proj");

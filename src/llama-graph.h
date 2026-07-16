@@ -846,7 +846,7 @@ struct llm_graph_context {
     const llama_ubatch  & ubatch;
 
     const int64_t n_embd;
-    const int64_t n_layer;
+    const int64_t n_layer_all;
     const int64_t n_rot;
     const int64_t n_ctx;       // user-specified context size (can be different from n_ctx_train)
     const int64_t n_head;
@@ -856,7 +856,7 @@ struct llm_graph_context {
     const int64_t n_embd_head_v;
     const int64_t n_embd_v_gqa;
     const int64_t n_expert;
-    const int64_t n_expert_used;
+    const int64_t n_expert_used_impl;
 
     const float freq_base;
     const float freq_scale;
@@ -963,7 +963,7 @@ struct llm_graph_context {
              ggml_tensor * down_exps,
              ggml_tensor * exp_probs_b,
                  int64_t   n_expert,
-                 int64_t   n_expert_used,
+                 int64_t   n_expert_used_impl,
          llm_ffn_op_type   type_op,
                     bool   norm_w,
                    float   w_scale,
@@ -988,7 +988,7 @@ struct llm_graph_context {
              ggml_tensor * down_exps_b,
              ggml_tensor * exp_probs_b,
                  int64_t   n_expert,
-                 int64_t   n_expert_used,
+                 int64_t   n_expert_used_impl,
          llm_ffn_op_type   type_op,
                     bool   norm_w,
                    float   w_scale,

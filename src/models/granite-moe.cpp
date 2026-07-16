@@ -12,7 +12,7 @@ void llama_model_granite_moe::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ROPE_SCALING_FINETUNED, rope_finetuned, false);
     hparams.rope_finetuned = rope_finetuned;
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 32: type = LLM_TYPE_3B; break;
         case 40: type = LLM_TYPE_3B; break;
         // Add additional layer/vocab/etc checks here for other model sizes
@@ -37,7 +37,7 @@ void llama_model_granite_moe::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);

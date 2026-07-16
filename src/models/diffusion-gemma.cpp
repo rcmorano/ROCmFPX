@@ -175,7 +175,7 @@ public:
 
 void llama_model_diffusion_gemma::load_arch_hparams(llama_model_loader & ml) {
     hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
-    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+    ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer_all);
 
     // bidirectional decoder; the forward fills its own region-aware mask
     hparams.causal_attn = false;
@@ -183,7 +183,7 @@ void llama_model_diffusion_gemma::load_arch_hparams(llama_model_loader & ml) {
     hparams.f_attention_scale = 1.0f; // Gemma4 uses self.scaling = 1.0 (no pre-attn scaling)
 
     ml.get_key(LLM_KV_ROPE_FREQ_BASE_SWA,          hparams.rope_freq_base_train_swa, false);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp, false);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp_impl, false);
     ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
     ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH_SWA,    hparams.n_embd_head_k_swa);
@@ -196,7 +196,7 @@ void llama_model_diffusion_gemma::load_arch_hparams(llama_model_loader & ml) {
         throw std::runtime_error("DiffusionGemma requires a positive diffusion.canvas_length");
     }
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 30: type = LLM_TYPE_26B_A4B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -205,7 +205,7 @@ void llama_model_diffusion_gemma::load_arch_hparams(llama_model_loader & ml) {
 void llama_model_diffusion_gemma::load_arch_tensors(llama_model_loader &) {
     LLAMA_LOAD_LOCALS;
 
-    const int64_t n_ff_exp = hparams.n_ff_exp;
+    const int64_t n_ff_exp_impl = hparams.n_ff_exp_impl;
 
     if (n_embd_head_k != n_embd_head_v) {
         throw std::runtime_error("DiffusionGemma requires n_embd_head_k == n_embd_head_v");
@@ -232,7 +232,7 @@ void llama_model_diffusion_gemma::load_arch_tensors(llama_model_loader &) {
 
     int rope_freqs_flag = 0;
 
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
         const int64_t n_head      = hparams.n_head(i);
         const int64_t n_embd_head = hparams.n_embd_head_k(i);
@@ -276,12 +276,12 @@ void llama_model_diffusion_gemma::load_arch_tensors(llama_model_loader &) {
         layer.ffn_post_norm_1 = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM_1, "weight", i), {n_embd}, 0);
         layer.ffn_post_norm_2 = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM_2, "weight", i), {n_embd}, 0);
 
-        layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", i), {n_embd, n_ff_exp * 2, n_expert}, TENSOR_NOT_REQUIRED);
+        layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", i), {n_embd, n_ff_exp_impl * 2, n_expert}, TENSOR_NOT_REQUIRED);
         if (layer.ffn_gate_up_exps == nullptr) {
-            layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
-            layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp, n_expert}, 0);
+            layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp_impl, n_expert}, 0);
+            layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp_impl, n_expert}, 0);
         }
-        layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS,   "weight", i), {n_ff_exp, n_embd, n_expert}, 0);
+        layer.ffn_down_exps   = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS,   "weight", i), {n_ff_exp_impl, n_embd, n_expert}, 0);
         // per-expert scale (router.per_expert_scale) is loaded as ffn_down_exps_s
     }
 }
@@ -416,7 +416,7 @@ llama_model_diffusion_gemma::graph::graph(const llama_model & model, const llm_g
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         const int64_t n_embd_head = hparams.n_embd_head_k(il);
         GGML_ASSERT(n_embd_head == hparams.n_embd_head_v(il));
         const int64_t n_head_kv = hparams.n_head_kv(il);
@@ -612,19 +612,19 @@ static void dg_ensure_pkv_store(const llama_model_diffusion_gemma & m, int64_t P
     m.pkv_k.clear();
     m.pkv_v.clear();
 
-    const int     n_layer = (int) m.hparams.n_layer;
+    const int     n_layer_all = (int) m.hparams.n_layer_all;
     const int64_t cap     = P;
 
     ggml_init_params ip = {
-        /*.mem_size   =*/ ggml_tensor_overhead() * (size_t) (2 * n_layer + 4),
+        /*.mem_size   =*/ ggml_tensor_overhead() * (size_t) (2 * n_layer_all + 4),
         /*.mem_buffer =*/ nullptr,
         /*.no_alloc   =*/ true,
     };
     m.pkv_ctx = ggml_init(ip);
     GGML_ASSERT(m.pkv_ctx != nullptr);
-    m.pkv_k.resize(n_layer);
-    m.pkv_v.resize(n_layer);
-    for (int il = 0; il < n_layer; ++il) {
+    m.pkv_k.resize(n_layer_all);
+    m.pkv_v.resize(n_layer_all);
+    for (int il = 0; il < n_layer_all; ++il) {
         const int64_t hd  = m.hparams.n_embd_head_k(il);
         const int64_t nkv = m.hparams.n_head_kv(il);
         m.pkv_k[il] = ggml_new_tensor_3d(m.pkv_ctx, GGML_TYPE_F32, hd, nkv, cap);

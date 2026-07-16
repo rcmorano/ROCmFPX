@@ -21,7 +21,7 @@ struct gguf_remote_model {
     uint32_t    n_embd          = 0;        // <arch>.embedding_length
     uint32_t    n_ff            = 0;        // <arch>.feed_forward_length
     uint32_t    n_vocab         = 0;        // inferred from token_embd.weight ne[1]
-    uint32_t    n_layer         = 0;        // <arch>.block_count
+    uint32_t    n_layer_all         = 0;        // <arch>.block_count
     uint32_t    n_head          = 0;        // <arch>.attention.head_count
     uint32_t    n_head_kv       = 0;        // <arch>.attention.head_count_kv
     uint32_t    n_expert        = 0;        // <arch>.expert_count (0 if absent)

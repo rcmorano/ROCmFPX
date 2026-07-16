@@ -267,6 +267,8 @@ class TensorNameMap:
             "model.transformer.blocks.{bid}.q_proj",                     # llada
             "layers.{bid}.self_attn.q_proj",                             # qwen3-embedding
             "backbone.layers.{bid}.mixer.q_proj",                        # nemotron-h
+            "model.layers.{bid}.mixer.q_proj.weight",                    # nemotron-h-puzzle (mixture)
+            "backbone.mtp.layers.{bid}.mixer.q_proj",                    # nemotron-h-puzzle (MTP attention layers)
         ),
 
         # Attention key
@@ -287,6 +289,8 @@ class TensorNameMap:
             "model.transformer.blocks.{bid}.k_proj",                   # llada
             "layers.{bid}.self_attn.k_proj",                           # qwen3-embedding
             "backbone.layers.{bid}.mixer.k_proj",                      # nemotron-h
+            "model.layers.{bid}.mixer.k_proj.weight",                  # nemotron-h-puzzle (mixture)
+            "backbone.mtp.layers.{bid}.mixer.k_proj",                  # nemotron-h-puzzle (MTP attention layers)
         ),
 
         # Attention value
@@ -306,6 +310,8 @@ class TensorNameMap:
             "model.transformer.blocks.{bid}.v_proj",                     # llada
             "layers.{bid}.self_attn.v_proj",                             # qwen3-embedding
             "backbone.layers.{bid}.mixer.v_proj",                        # nemotron-h
+            "model.layers.{bid}.mixer.v_proj.weight",                    # nemotron-h-puzzle (mixture)
+            "backbone.mtp.layers.{bid}.mixer.v_proj",                    # nemotron-h-puzzle (MTP attention layers)
         ),
 
         # Attention output
@@ -344,6 +350,10 @@ class TensorNameMap:
             "layers.{bid}.self_attn.o_proj",                                # qwen3-embedding
             "backbone.layers.{bid}.mixer.o_proj",                           # nemotron-h
             "model.layers.{bid}.self_attn.language_expert_dense",           # cogvlm
+            "model.layers.{bid}.mixer.out_proj.weight",                     # nemotron-h-puzzle (mixture)
+            "model.layers.{bid}.mixer.o_proj",                                # nemotron-h-puzzle (mixture)
+            "backbone.mtp.layers.{bid}.mixer.out_proj",                     # nemotron-h-puzzle (MTP attention layers)
+            "backbone.mtp.layers.{bid}.mixer.o_proj",                       # nemotron-h-puzzle (MTP attention layers)
         ),
 
         # Attention output norm
@@ -457,6 +467,7 @@ class TensorNameMap:
             "backbone.layers.{bid}.mixer.gate",                 # nemotron-h-moe
             "model.layers.{bid}.moe.gate",                      # step3.5
             "model.layers.{bid}.router.proj",                   # gemma4
+            "model.layers.{bid}.mixer.gate.weight",             # nemotron-h-puzzle (mixture)
         ),
 
         MODEL_TENSOR.FFN_GATE_INP_SHEXP: (
@@ -474,6 +485,7 @@ class TensorNameMap:
             "model.layers.{bid}.mlp.e_score_correction",                    # exaone-moe
             "model.layers.{bid}.block_sparse_moe.gate.e_score_correction",  # kimi
             "model.layers.{bid}.moe.router_bias",                           # step3.5 expert selection bias
+            "model.layers.{bid}.mixer.gate.e_score_correction.bias",        # nemotron-h (NemotronHPuzzle)
         ),
 
         # Feed-forward up
@@ -528,6 +540,8 @@ class TensorNameMap:
             "encoder.layers.{bid}.mlp.experts.mlp.w1",              # nomic-bert-moe
             "model.layers.{bid}.block_sparse_moe.experts.up", # smallthinker
             "model.layers.{bid}.moe.up_proj",                       # step3.5
+            "model.layers.{bid}.mlp.experts.{xid}.up_proj.weight",  # nemotron-h (NemotronHPuzzle)
+            "model.layers.{bid}.mixer.experts.{xid}.up_proj.weight", # nemotron-h-puzzle (mixture)
         ),
 
         MODEL_TENSOR.FFN_UP_SHEXP: (
@@ -540,6 +554,7 @@ class TensorNameMap:
             "backbone.layers.{bid}.mixer.shared_experts.up_proj",    # nemotron-h-moe
             "model.layers.{bid}.block_sparse_moe.shared_experts.up_proj", # kimi
             "model.layers.{bid}.share_expert.up_proj",               # step3.5
+            "model.layers.{bid}.mixer.shared_experts.up_proj.weight", # nemotron-h-puzzle (mixture)
         ),
 
         MODEL_TENSOR.FFN_UP_CHEXP: (
@@ -569,6 +584,7 @@ class TensorNameMap:
             "model.transformer.blocks.{bid}.ff_proj",         # llada
             "layers.{bid}.mlp.gate_proj",                     # qwen3-embedding
             "model.layers.{bid}.mlp.language_mlp.gate_proj",  # cogvlm
+            "model.layers.{bid}.mixer.gate.weight",           # nemotron-h-puzzle (mixture)
         ),
 
         MODEL_TENSOR.FFN_GATE_EXP: (
@@ -603,10 +619,12 @@ class TensorNameMap:
 
         MODEL_TENSOR.MOE_LATENT_DOWN: (
             "backbone.layers.{bid}.mixer.fc1_latent_proj",                 # nemotron 3 super
+            "model.layers.{bid}.mixer.fc1_latent_proj.weight",             # nemotron-h-puzzle (mixture)
         ),
 
         MODEL_TENSOR.MOE_LATENT_UP: (
             "backbone.layers.{bid}.mixer.fc2_latent_proj",                 # nemotron 3 super
+            "model.layers.{bid}.mixer.fc2_latent_proj.weight",             # nemotron-h-puzzle (mixture)
         ),
 
         # Feed-forward down
@@ -658,6 +676,8 @@ class TensorNameMap:
             "model.layers.{bid}.block_sparse_moe.experts.down",     # smallthinker
             "model.layers.{bid}.moe.down_proj",                     # step3.5
             "model.layers.{bid}.experts.down_proj",                 # gemma4
+            "model.layers.{bid}.mlp.experts.{xid}.down_proj.weight", # nemotron-h (NemotronHPuzzle)
+            "model.layers.{bid}.mixer.experts.{xid}.down_proj.weight", # nemotron-h-puzzle (mixture)
         ),
 
         MODEL_TENSOR.FFN_DOWN_SHEXP: (
@@ -670,6 +690,7 @@ class TensorNameMap:
             "backbone.layers.{bid}.mixer.shared_experts.down_proj",    # nemotron-h-moe
             "model.layers.{bid}.block_sparse_moe.shared_experts.down_proj", # kimi
             "model.layers.{bid}.share_expert.down_proj",               # step3.5
+            "model.layers.{bid}.mixer.shared_experts.down_proj.weight", # nemotron-h-puzzle (mixture)
         ),
 
         MODEL_TENSOR.FFN_DOWN_CHEXP: (
@@ -796,6 +817,7 @@ class TensorNameMap:
             "model.layers.{bid}.mamba.in_proj",             # jamba falcon-h1 granite-hybrid
             "model.layers.layers.{bid}.mixer.in_proj",      # plamo2
             "model.layers.{bid}.linear_attn.in_proj_qkvz",  # qwen3next
+            "model.layers.{bid}.mixer.in_proj.weight",      # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_CONV1D: (
@@ -804,6 +826,8 @@ class TensorNameMap:
             "model.layers.{bid}.mamba.conv1d",         # jamba falcon-h1 granite-hybrid
             "model.layers.layers.{bid}.mixer.conv1d",  # plamo2
             "model.layers.{bid}.linear_attn.conv1d",   # qwen3next
+            "model.layers.{bid}.mixer.conv1d.weight",  # nemotron-h (NemotronHPuzzle)
+            "model.layers.{bid}.mixer.conv1d.bias",    # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_X: (
@@ -821,6 +845,7 @@ class TensorNameMap:
             "model.layers.{bid}.linear_attn.dt_proj",   # qwen3next
             "backbone.layers.{bid}.mixer.dt",           # nemotron-h-moe
             "model.layers.{bid}.self_attn.dt_proj",     # kimi
+            "model.layers.{bid}.mixer.dt_bias",         # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_DT_NORM: (
@@ -835,6 +860,7 @@ class TensorNameMap:
             "model.layers.layers.{bid}.mixer.A_log",  # plamo2
             "model.layers.{bid}.linear_attn.A_log",   # qwen3next
             "model.layers.{bid}.self_attn.A_log",     # kimi
+            "model.layers.{bid}.mixer.A_log",         # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_B_NORM: (
@@ -854,6 +880,7 @@ class TensorNameMap:
             "backbone.layers.{bid}.mixer.D",      # mamba
             "model.layers.{bid}.mamba.D",         # jamba falcon-h1 granite-hybrid
             "model.layers.layers.{bid}.mixer.D",  # plamo2
+            "model.layers.{bid}.mixer.D",         # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_NORM: (
@@ -861,6 +888,7 @@ class TensorNameMap:
             "model.layers.{bid}.linear_attn.norm",  # qwen3next
             "backbone.layers.{bid}.mixer.norm",     # mamba2
             "model.layers.{bid}.self_attn.o_norm",  # kimi
+            "model.layers.{bid}.mixer.norm.weight", # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_OUT: (
@@ -869,6 +897,7 @@ class TensorNameMap:
             "model.layers.{bid}.mamba.out_proj",         # jamba falcon-h1 granite-hybrid
             "model.layers.{bid}.linear_attn.out_proj",   # qwen3next
             "model.layers.layers.{bid}.mixer.out_proj",  # plamo2
+            "model.layers.{bid}.mixer.out_proj.weight",  # nemotron-h (NemotronHPuzzle)
         ),
 
         MODEL_TENSOR.SSM_ALPHA: (
@@ -2274,6 +2303,8 @@ class TensorNameMap:
 
         MODEL_TENSOR.NEXTN_EH_PROJ: (
             "model.layers.{bid}.eh_proj",
+            "backbone.mtp.layers.{bid}.eh_proj",
+            "backbone.layers.{bid}.eh_proj",
         ),
 
         MODEL_TENSOR.NEXTN_EMBED_TOKENS: (
@@ -2282,10 +2313,21 @@ class TensorNameMap:
 
         MODEL_TENSOR.NEXTN_ENORM: (
             "model.layers.{bid}.enorm",
+            "mtp.layers.{bid}.enorm",
+            "backbone.mtp.layers.{bid}.enorm",
+            "backbone.layers.{bid}.enorm",
         ),
 
         MODEL_TENSOR.NEXTN_HNORM: (
             "model.layers.{bid}.hnorm",
+            "mtp.layers.{bid}.hnorm",
+            "backbone.mtp.layers.{bid}.hnorm",
+            "backbone.layers.{bid}.hnorm",
+        ),
+
+        MODEL_TENSOR.MTP_ATTN_NORM: (
+            "mtp.layers.{bid}.norm.weight",
+            "mtp.layers.{bid}.mixer.norm.weight",
         ),
 
         MODEL_TENSOR.NEXTN_SHARED_HEAD_HEAD: (
@@ -2311,7 +2353,7 @@ class TensorNameMap:
 
     mapping: dict[str, tuple[MODEL_TENSOR, str]]
 
-    def __init__(self, arch: MODEL_ARCH, n_blocks: int):
+    def __init__(self, arch: MODEL_ARCH, n_blocks: int, block_configs: list[dict] | None = None):
         self.mapping = {}
         for tensor, keys in self.mappings_cfg.items():
             if tensor not in MODEL_TENSORS[arch]:
@@ -2330,8 +2372,20 @@ class TensorNameMap:
                 tensor_name = TENSOR_NAMES[tensor].format(bid = bid)
                 self.mapping[tensor_name] = (tensor, tensor_name)
                 for key in keys:
-                    key = key.format(bid = bid)
-                    self.mapping[key] = (tensor, tensor_name)
+                    # Handle keys with {xid} by iterating over experts
+                    if '{xid}' in key:
+                        max_experts = 512  # default maximum number of experts
+                        if block_configs and bid < len(block_configs):
+                            cfg = block_configs[bid]
+                            if isinstance(cfg, dict):
+                                total_experts = cfg.get('num_experts', 512)
+                                max_experts = total_experts
+                        for xid in range(max_experts):
+                            formatted_key = key.format(bid=bid, xid=xid)
+                            self.mapping[formatted_key] = (tensor, tensor_name)
+                    else:
+                        formatted_key = key.format(bid=bid)
+                        self.mapping[formatted_key] = (tensor, tensor_name)
 
     def get_type_and_name(self, key: str, try_suffixes: Sequence[str] = ()) -> tuple[MODEL_TENSOR, str] | None:
         result = self.mapping.get(key)
@@ -2369,5 +2423,5 @@ class TensorNameMap:
         return repr(self.mapping)
 
 
-def get_tensor_name_map(arch: MODEL_ARCH, n_blocks: int) -> TensorNameMap:
-    return TensorNameMap(arch, n_blocks)
+def get_tensor_name_map(arch: MODEL_ARCH, n_blocks: int, block_configs: list[dict] | None = None) -> TensorNameMap:
+    return TensorNameMap(arch, n_blocks, block_configs)

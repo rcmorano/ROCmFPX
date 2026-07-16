@@ -9,10 +9,10 @@ void llama_model_t5::load_arch_hparams(llama_model_loader & ml) {
         hparams.dec_start_token_id = dec_start_token_id;
     }
 
-    hparams.dec_n_layer = hparams.n_layer;
+    hparams.dec_n_layer = hparams.n_layer_all;
     ml.get_key(LLM_KV_DECODER_BLOCK_COUNT, hparams.dec_n_layer, false);
 
-    switch (hparams.n_layer) {
+    switch (hparams.n_layer_all) {
         case 6:  type = LLM_TYPE_60M;  break; // t5-small
         case 8:  type = LLM_TYPE_80M;  break; // flan-t5-small
         case 12:
@@ -52,15 +52,15 @@ void llama_model_t5::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
-    // n_layer:     number of encoder_layers
+    // n_layer_all:     number of encoder_layers
     // dec_n_layer: number of decoder_layers
     const int dec_n_layer = hparams.dec_n_layer;
-    if (dec_n_layer > n_layer) {
+    if (dec_n_layer > n_layer_all) {
         layers.resize(dec_n_layer);
     }
 
     // load encoder layers
-    for (int i = 0; i < n_layer; ++i) {
+    for (int i = 0; i < n_layer_all; ++i) {
         auto & layer = layers[i];
 
         layer.attn_norm_enc  = create_tensor(tn(LLM_TENSOR_ENC_ATTN_NORM,  "weight", i), {n_embd}, 0);
@@ -290,7 +290,7 @@ llama_model_t5::graph<true>::graph(const llama_model & model, const llm_graph_pa
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < n_layer_all; ++il) {
         ggml_tensor * inpSA = inpL;
 
         // norm
@@ -322,7 +322,7 @@ llama_model_t5::graph<true>::graph(const llama_model & model, const llm_graph_pa
                     Qcur, Kcur, Vcur, kq_b, nullptr, nullptr, 1.0f, il);
             cb(cur, "kqv_out", il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_all - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
