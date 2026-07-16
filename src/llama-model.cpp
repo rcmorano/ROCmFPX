@@ -1025,7 +1025,14 @@ void llama_model_base::load_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_POOLING_TYPE,            hparams.pooling_type,    false);
     ml.get_key(LLM_KV_BLOCK_COUNT,             hparams.n_layer_all);
     ml.get_key(LLM_KV_EXPERT_COUNT,            hparams.n_expert,        false);
-    ml.get_key(LLM_KV_EXPERT_USED_COUNT,       hparams.n_expert_used_impl,   false);
+    // Load n_expert_used as scalar-OR-array; derive scalar impl as max for
+    // validation and backward compat with arches that always use a uniform topk.
+    std::fill(hparams.n_expert_used_arr.begin(), hparams.n_expert_used_arr.end(), 0);
+    ml.get_key_or_arr(LLM_KV_EXPERT_USED_COUNT, hparams.n_expert_used_arr, hparams.n_layer_all, false);
+    hparams.n_expert_used_impl = 0;
+    for (uint32_t il = 0; il < hparams.n_layer_all; ++il) {
+        hparams.n_expert_used_impl = std::max(hparams.n_expert_used_impl, hparams.n_expert_used_arr[il]);
+    }
     ml.get_key(LLM_KV_EXPERT_GROUP_COUNT,      hparams.n_expert_groups, false);
     ml.get_key(LLM_KV_EXPERT_GROUP_USED_COUNT, hparams.n_group_used,    false);
 

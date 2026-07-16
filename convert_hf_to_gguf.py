@@ -11840,6 +11840,10 @@ class NemotronHPuzzleModel(NemotronHModel):
         # Add nextn predict layers
         self.gguf_writer.add_nextn_predict_layers(len(self.mtp_block_configs))
 
+        # Write per-layer expert_used_count array (num_experts_per_tok from block configs)
+        experts_used = [cfg.get("num_experts_per_tok", 0) for cfg in all_block_configs]
+        self.gguf_writer.add_expert_used_count(experts_used)
+
     def modify_tensors(self, data_torch, name, bid):
         # Handle tensors starting with "mtp." specially
         if name.startswith("mtp."):
