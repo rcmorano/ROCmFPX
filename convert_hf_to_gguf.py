@@ -11561,8 +11561,13 @@ class NemotronHModel(GraniteHybridModel):
                 self.gguf_writer.add_expert_group_count(self.hparams["n_group"])
 
             # number of experts used per token (top-k)
-            if (n_experts_used := self.hparams.get("num_experts_per_tok")) is not None:
-                self.gguf_writer.add_expert_used_count(n_experts_used)
+            # Determine expert_used_count - use block_configs if available, else top-level
+            if "block_configs" in self.hparams:
+                experts_used_arr = [cfg.get("experts_used", 0) for cfg in self.hparams["block_configs"]]
+                n_experts_used = max(experts_used_arr) if experts_used_arr else 0
+            else:
+                n_experts_used = self.hparams.get("num_experts_per_tok", 0)
+            self.gguf_writer.add_expert_used_count(n_experts_used)
 
             if (latent_size := self.hparams.get("moe_latent_size")) is not None:
                 self.gguf_writer.add_moe_latent_size(latent_size)
