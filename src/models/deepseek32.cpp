@@ -4,14 +4,14 @@
 #include "llama-kv-cache-dsa.h"
 
 void llama_model_deepseek32::load_arch_hparams(llama_model_loader & ml) {
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,     hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,     hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,    hparams.f_norm_rms_eps);
     hparams.f_norm_eps = 1e-6;  // eps for layer norm
     ml.get_key_or_arr(LLM_KV_ROPE_DIMENSION_SECTIONS, hparams.rope_sections, 4, false);
 
     // MoE parameters
     ml.get_key(LLM_KV_EXPERT_COUNT,                hparams.n_expert);
-    ml.get_key(LLM_KV_EXPERT_USED_COUNT,           hparams.n_expert_used);
+    ml.get_key(LLM_KV_EXPERT_USED_COUNT,           hparams.n_expert_used_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,         hparams.n_expert_shared);
     ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,   hparams.n_layer_dense_lead, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,        hparams.expert_weights_scale, false);
@@ -22,7 +22,7 @@ void llama_model_deepseek32::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_KV_LORA_RANK,     hparams.n_lora_kv);
     ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH_MLA,   hparams.n_embd_head_k_mla_impl, false);
     ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH_MLA, hparams.n_embd_head_v_mla_impl, false);
-    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp);
+    ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp_impl);
     ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,        hparams.n_expert_shared);
 
     // DSA parameters
@@ -41,9 +41,9 @@ void llama_model_deepseek32::load_arch_hparams(llama_model_loader & ml) {
 
     // NextN/MTP parameters
     ml.get_key(LLM_KV_NEXTN_PREDICT_LAYERS, hparams.nextn_predict_layers, false);
-    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer && "nextn_predict_layers must be < n_layer");
+    GGML_ASSERT(hparams.nextn_predict_layers < hparams.n_layer() && "nextn_predict_layers must be < n_layer");
 
-    switch (hparams.n_layer - hparams.nextn_predict_layers) {
+    switch (hparams.n_layer() - hparams.nextn_predict_layers) {
         case 62: type = LLM_TYPE_685B_A37B; break;
         default: type = LLM_TYPE_UNKNOWN;
     }
@@ -66,7 +66,7 @@ void llama_model_deepseek32::load_arch_tensors(llama_model_loader &) {
     const int64_t q_lora_rank  = hparams.n_lora_q;
     const int64_t kv_lora_rank = hparams.n_lora_kv;
 
-    const int64_t n_ff_exp        = hparams.n_ff_exp;
+    const int64_t n_ff_exp        = hparams.n_ff_exp_impl;
     const int64_t n_expert_shared = hparams.n_expert_shared;
 
     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
@@ -79,9 +79,10 @@ void llama_model_deepseek32::load_arch_tensors(llama_model_loader &) {
         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
     }
 
+    const int n_layer = hparams.n_layer();
     for (int i = 0; i < n_layer; ++i) {
         int flags = 0;
-        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= hparams.n_layer - hparams.nextn_predict_layers) {
+        if (hparams.nextn_predict_layers > 0 && static_cast<uint32_t>(i) >= hparams.n_layer() - hparams.nextn_predict_layers) {
             // skip all tensors in the NextN layers
             // TODO @ngxson : TENSOR_NOT_REQUIRED was a hack, need to remove it later
             flags |= TENSOR_SKIP | TENSOR_NOT_REQUIRED;
@@ -123,8 +124,8 @@ void llama_model_deepseek32::load_arch_tensors(llama_model_loader &) {
             if (n_expert == 0) {
                 throw std::runtime_error("n_expert must be > 0");
             }
-            if (n_expert_used == 0) {
-                throw std::runtime_error("n_expert_used must be > 0");
+            if (hparams.n_expert_used_impl == 0) {
+                throw std::runtime_error("n_expert_used_impl must be > 0");
             }
 
             // MoE branch
@@ -202,7 +203,7 @@ llama_model_deepseek32::graph::graph(const llama_model & model, const llm_graph_
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < hparams.n_layer(); ++il) {
         ggml_tensor * inpSA = inpL;
 
         // norm
@@ -423,7 +424,7 @@ llama_model_deepseek32::graph::graph(const llama_model & model, const llm_graph_
                         Qcur, Kcur, Vcur, nullptr, nullptr, model.layers[il].wv_b, top_k, kq_scale, il);
             }
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == hparams.n_layer() - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
@@ -448,7 +449,7 @@ llama_model_deepseek32::graph::graph(const llama_model & model, const llm_graph_
                 model.layers[il].ffn_gate_exps,
                 model.layers[il].ffn_down_exps,
                 model.layers[il].ffn_exp_probs_b,
-                n_expert, n_expert_used,
+                n_expert, hparams.n_expert_used_impl,
                 LLM_FFN_SILU, hparams.expert_weights_norm,
                 hparams.expert_weights_scale,
                 (llama_expert_gating_func_type) hparams.expert_gating_func,

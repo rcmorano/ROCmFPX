@@ -7,6 +7,7 @@
 
 #include "llama-kv-cache.h"
 #include "llama-kv-cache-iswa.h"
+#include "llama-kv-cache-dsa.h"
 #include "llama-memory-hybrid.h"
 #include "llama-memory-hybrid-iswa.h"
 #include "llama-memory-recurrent.h"
@@ -544,6 +545,27 @@ bool llm_graph_input_attn_k::can_reuse(const llm_graph_params & params) {
     res &= can_reuse_kq_mask(self_kq_mask, mctx, params.ubatch, params.cparams);
 
     return res;
+}
+
+void llm_graph_input_attn_k_dsa::set_input(const llama_ubatch * ubatch) {
+    const auto * ctx_lid = mctx->get_lid();
+    const auto * ctx_mla = mctx->get_mla();
+
+    if (ctx_lid && self_k_idxs_lid && self_kq_mask_lid) {
+        ctx_lid->set_input_k_idxs(self_k_idxs_lid, ubatch);
+        ctx_lid->set_input_kq_mask(self_kq_mask_lid, ubatch, cparams.causal_attn);
+    }
+
+    if (ctx_mla && self_k_idxs_mla && self_kq_mask_mla) {
+        ctx_mla->set_input_k_idxs(self_k_idxs_mla, ubatch);
+        ctx_mla->set_input_kq_mask(self_kq_mask_mla, ubatch, cparams.causal_attn);
+    }
+}
+
+bool llm_graph_input_attn_k_dsa::can_reuse(const llm_graph_params & params) {
+    // For now, return false to avoid reuse until we can properly verify compatibility
+    GGML_UNUSED(params);
+    return false;
 }
 
 void llm_graph_input_attn_kv_iswa::set_input(const llama_ubatch * ubatch) {
@@ -2464,6 +2486,43 @@ llm_graph_input_attn_k * llm_graph_context::build_attn_inp_k() const {
     return (llm_graph_input_attn_k *) res->add_input(std::move(inp));
 }
 
+static std::unique_ptr<llm_graph_input_attn_k_dsa> build_attn_inp_k_dsa_impl(
+        ggml_context * ctx0,
+        const llama_ubatch & ubatch,
+        const llama_hparams & hparams,
+        const llama_cparams & cparams,
+        const llama_kv_cache_dsa_context * mctx_cur) {
+
+    auto inp = std::make_unique<llm_graph_input_attn_k_dsa>(hparams, cparams, mctx_cur);
+
+    const auto * ctx_lid = mctx_cur->get_lid();
+    const auto * ctx_mla = mctx_cur->get_mla();
+
+    // Initialize LID components
+    if (ctx_lid) {
+        inp->self_k_idxs_lid = ctx_lid->build_input_k_idxs(ctx0, ubatch);
+        inp->self_kq_mask_lid = build_attn_inp_kq_mask(ctx0, ctx_lid, ubatch, cparams);
+        inp->self_kq_mask_lid_cnv = cparams.flash_attn ? ggml_cast(ctx0, inp->self_kq_mask_lid, GGML_TYPE_F16) : inp->self_kq_mask_lid;
+    }
+
+    // Initialize MLA components
+    if (ctx_mla) {
+        inp->self_k_idxs_mla = ctx_mla->build_input_k_idxs(ctx0, ubatch);
+        inp->self_kq_mask_mla = build_attn_inp_kq_mask(ctx0, ctx_mla, ubatch, cparams);
+        inp->self_kq_mask_mla_cnv = cparams.flash_attn ? ggml_cast(ctx0, inp->self_kq_mask_mla, GGML_TYPE_F16) : inp->self_kq_mask_mla;
+    }
+
+    // self_k_rot_lid is set elsewhere; leave as nullptr for now
+    inp->self_k_rot_lid = nullptr;
+
+    return inp;
+}
+
+llm_graph_input_attn_k_dsa * llm_graph_context::build_attn_inp_k_dsa() const {
+    auto inp = build_attn_inp_k_dsa_impl(ctx0, ubatch, hparams, cparams, static_cast<const llama_kv_cache_dsa_context*>(mctx));
+    return (llm_graph_input_attn_k_dsa *) res->add_input(std::move(inp));
+}
+
 ggml_tensor * llm_graph_context::build_attn(
         llm_graph_input_attn_k * inp,
         ggml_tensor * wo,
@@ -2596,6 +2655,70 @@ ggml_tensor * llm_graph_context::build_attn(
 
     if (wo) {
         cur = build_lora_mm(wo, cur, wo_s);
+    }
+
+    if (wo_b) {
+        //cb(cur, "kqv_wo", il);
+    }
+
+    if (wo_b) {
+        cur = ggml_add(ctx0, cur, wo_b);
+    }
+
+    return cur;
+}
+
+ggml_tensor * llm_graph_context::build_attn(
+        llm_graph_input_attn_k_dsa * inp,
+        ggml_tensor * wo,
+        ggml_tensor * wo_b,
+        ggml_tensor * wo_s,
+        ggml_tensor * q_cur,
+        ggml_tensor * k_cur,
+        ggml_tensor * v_cur,
+        ggml_tensor * kq_b,
+        ggml_tensor * sinks,
+        ggml_tensor * v_mla,
+        ggml_tensor * top_k,
+              float     kq_scale,
+              int       il) const {
+    // Use the LID context for DSA attention
+    const auto * mctx_cur = inp->mctx->get_lid();
+
+    ggml_build_forward_expand(gf, q_cur);
+    ggml_build_forward_expand(gf, k_cur);
+    ggml_build_forward_expand(gf, v_cur);
+
+    if (k_cur) {
+        const auto & k_idxs = inp->self_k_idxs_lid;
+        ggml_build_forward_expand(gf, mctx_cur->cpy_k(ctx0, k_cur, k_idxs, il));
+    }
+
+    if (v_cur) {
+        // Use same indices as k for v (may need adjustment based on actual layout)
+        const auto & v_idxs = inp->self_k_idxs_lid;
+        ggml_build_forward_expand(gf, mctx_cur->cpy_v(ctx0, v_cur, v_idxs, il));
+    }
+
+    const auto & kq_mask = inp->self_kq_mask_lid_cnv;
+
+    ggml_tensor * q = q_cur;
+    ggml_tensor * k = mctx_cur->get_k(ctx0, il);
+    ggml_tensor * v = mctx_cur->get_v(ctx0, il);
+
+    ggml_tensor * cur = build_attn_mha(q, k, v, kq_b, kq_mask, sinks, v_mla, kq_scale, il);
+    cb(cur, "kqv_out", il);
+
+    if (wo) {
+        if (arch == LLM_ARCH_GLM4 || arch == LLM_ARCH_GLM4_MOE) {
+            cur = build_lora_mm(wo, cur);
+            ggml_mul_mat_set_prec(cur, GGML_PREC_F32);
+            if (wo_s) {
+                cur = ggml_mul(ctx0, cur, wo_s);
+            }
+        } else {
+            cur = build_lora_mm(wo, cur, wo_s);
+        }
     }
 
     if (wo_b) {

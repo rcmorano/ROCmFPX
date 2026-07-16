@@ -456,13 +456,13 @@ static ggml_type llama_tensor_get_type_impl(quantize_state_impl & qs, ggml_type 
         return ftype == LLAMA_FTYPE_MOSTLY_Q8_0_ROCMFPX_AGENT;
     };
     auto rocmfpx_is_q6_strix_lean = [] (llama_ftype ftype) {
-        return ftype == LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_LEAN;
+        return ftype == LLAMA_FTYPE_MOSTLY_Q4_0_ROCMFP4_STRIX_LEAN;
     };
     auto rocmfpx_is_q6_strix_speed = [] (llama_ftype ftype) {
-        return ftype == LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_SPEED;
+        return ftype == LLAMA_FTYPE_MOSTLY_Q4_0_ROCMFP4_STRIX;
     };
     auto rocmfpx_is_q6_strix_quality = [] (llama_ftype ftype) {
-        return ftype == LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_QUALITY;
+        return ftype == LLAMA_FTYPE_MOSTLY_Q4_0_ROCMFP4_STRIX;
     };
     auto rocmfpx_is_q6_strix_protected = [&] (llama_ftype ftype) {
         return rocmfpx_is_q6_strix_lean(ftype) || rocmfpx_is_q6_strix_speed(ftype) ||
@@ -485,9 +485,8 @@ static ggml_type llama_tensor_get_type_impl(quantize_state_impl & qs, ggml_type 
             case LLAMA_FTYPE_MOSTLY_Q3_0_ROCMFPX: return GGML_TYPE_Q4_0_ROCMFP4_FAST;
             case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX: return GGML_TYPE_Q6_0_ROCMFPX;
             case LLAMA_FTYPE_MOSTLY_Q8_0_ROCMFPX: return GGML_TYPE_Q8_0_ROCMFPX;
-            case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_LEAN: return GGML_TYPE_Q6_0_ROCMFPX;
-            case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_SPEED: return GGML_TYPE_Q6_0_ROCMFPX;
-            case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_QUALITY: return GGML_TYPE_Q8_0_ROCMFPX;
+            case LLAMA_FTYPE_MOSTLY_Q4_0_ROCMFP4_STRIX_LEAN: return GGML_TYPE_Q4_0_ROCMFP4_FAST;
+            case LLAMA_FTYPE_MOSTLY_Q4_0_ROCMFP4_STRIX: return GGML_TYPE_Q4_0_ROCMFP4_FAST;
             default:
                 if (rocmfpx_is_q3_agent(ftype)) {
                     return GGML_TYPE_Q6_0_ROCMFPX;
@@ -1164,9 +1163,6 @@ ggml_type llama_ftype_get_default_type(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_Q3_0_ROCMFPX_AGENT: return GGML_TYPE_Q3_0_ROCMFPX;
         case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_AGENT: return GGML_TYPE_Q6_0_ROCMFPX;
         case LLAMA_FTYPE_MOSTLY_Q8_0_ROCMFPX_AGENT: return GGML_TYPE_Q8_0_ROCMFPX;
-        case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_QUALITY: return GGML_TYPE_Q6_0_ROCMFPX;
-        case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_LEAN:
-        case LLAMA_FTYPE_MOSTLY_Q6_0_ROCMFPX_STRIX_SPEED: return GGML_TYPE_Q4_0_ROCMFP4_FAST;
         case LLAMA_FTYPE_MOSTLY_Q4_1: return GGML_TYPE_Q4_1;
         case LLAMA_FTYPE_MOSTLY_Q5_0: return GGML_TYPE_Q5_0;
         case LLAMA_FTYPE_MOSTLY_Q5_1: return GGML_TYPE_Q5_1;

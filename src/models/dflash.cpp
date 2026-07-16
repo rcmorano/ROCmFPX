@@ -28,7 +28,7 @@ void llama_model_dflash::load_arch_hparams(llama_model_loader & ml) {
 
     if (ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW, hparams.n_swa, false) && hparams.n_swa > 0) {
         hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
-        ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+        ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer());
         hparams.rope_freq_base_train_swa  = hparams.rope_freq_base_train;
         hparams.rope_freq_scale_train_swa = hparams.rope_freq_scale_train;
     }
@@ -45,6 +45,7 @@ void llama_model_dflash::load_arch_tensors(llama_model_loader &) {
     output_norm_enc = create_tensor(tn(LLM_TENSOR_ENC_OUTPUT_NORM, "weight"), { n_embd }, 0);
     output_norm     = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM,     "weight"), { n_embd }, 0);
 
+    const int n_layer = hparams.n_layer();
     for (int i = 0; i < n_layer; ++i) {
         auto & layer = layers[i];
 
@@ -139,7 +140,7 @@ llama_model_dflash::graph<false>::graph(const llama_model & model, const llm_gra
 
         res->add_input(std::move(inp));
 
-        for (int il = 0; il < n_layer; ++il) {
+        for (int il = 0; il < hparams.n_layer(); ++il) {
             const auto & layer = model.layers[il];
 
             ggml_tensor * Kcur = build_lora_mm(layer.wk, inp_g);
@@ -192,7 +193,7 @@ llama_model_dflash::graph<false>::graph(const llama_model & model, const llm_gra
 
     res->add_input(std::move(inp));
 
-    for (int il = 0; il < n_layer; ++il) {
+    for (int il = 0; il < hparams.n_layer(); ++il) {
         const auto & layer = model.layers[il];
 
         ggml_tensor * noise_norm = build_norm(inpL, layer.attn_norm, NULL, LLM_NORM_RMS, il);
